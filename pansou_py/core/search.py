@@ -81,9 +81,9 @@ class SearchService:
                 cached = cache_service.get(cache_key)
                 if cached: return cached
 
-            # 1. Search local resource database
-        db_resources = await self._search_local_db(keyword, cloud_types)
-        all_results = []
+        # 1. Search local resource database FIRST (without locking)
+        db_resources = await self._search_local_db(keyword, cloud_types or ["quark"])
+        fresh_db_results = []
         if db_resources:
             now = datetime.utcnow()
             stale_resources = []
@@ -107,77 +107,91 @@ class SearchService:
             if stale_resources:
                 print(f"🏠 [Search] Found {len(db_resources)} results in DB. Validating {len(stale_resources)} stale links...")
                 validated_stale = await self._validate_and_cleanup_db_resources(stale_resources)
-                all_results = fresh_results + validated_stale
+                fresh_db_results = fresh_results + validated_stale
             else:
                 print(f"🏠 [Search] Found {len(db_resources)} results in DB. All are fresh, skipping validation.")
-                all_results = fresh_results
+                fresh_db_results = fresh_results
             
-            print(f"🏠 [Search] Total {len(all_results)} DB results ready.")
+            print(f"🏠 [Search] Total {len(fresh_db_results)} DB results ready for '{keyword}'.")
 
-        # 2. Search external if needed
+        # 2. Search external if needed, wrapped in a lock to avoid duplicate fetching
+        all_results = fresh_db_results
+        
         if not all_results or force_refresh:
-            tg_results: List[SearchResult] = []
-            plugin_results: List[SearchResult] = []
+            lock = await get_keyword_lock(keyword)
             
-            channels_to_search = channels if channels else settings.default_channels
-            
-            if src in ["all", "tg"]:
-                print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: 4.0s)")
-                tasks = [asyncio.create_task(telegram_searcher.search(ch, keyword, max_pages=max_pages)) for ch in channels_to_search]
-                try:
-                    done, _ = await asyncio.wait(tasks, timeout=4.0)
-                    for task in done:
-                        try:
-                            res = await task
-                            if isinstance(res, list): tg_results.extend(res)
-                        except: pass
-                    for t in tasks:
-                        if not t.done(): t.cancel()
-                except: pass
-
-            if src in ["all", "plugin"]:
-                print(f"🔌 [Search] Searching plugins for '{keyword}'")
-                plugin_results = await self.search_plugins(keyword, plugins)
-
-            # Combine and merge new findings
-            new_external_results = self._merge_results(tg_results, plugin_results)
-            
-            # Filter by cloud types BEFORE validation to save time
-            if cloud_types:
-                new_external_results = [
-                    res for res in new_external_results 
-                    if any(l.type in cloud_types for l in res.links)
-                ]
-                # Filter individual links within results
-                for res in new_external_results:
-                    res.links = [l for l in res.links if l.type in cloud_types]
-            
-            # Limit candidates to a reasonable number to avoid long validation
-            # If max_results is set, we check up to double that to find enough valid ones
-            val_limit = (max_results * 2) if max_results else 20
-            if len(new_external_results) > val_limit:
-                new_external_results = new_external_results[:val_limit]
-            
-            if new_external_results:
-                print(f"🛡️ [Search] Validating {len(new_external_results)} candidates for '{keyword}'...")
-                # Validate external results BEFORE saving
-                validated_external = await self._validate_all_results_deep(new_external_results)
-                
-                # Further limit to max_results if specified
-                if max_results and len(validated_external) > max_results:
-                    validated_external = validated_external[:max_results]
+            # Non-blocking check for foreground queries: if already searching, don't wait 4s
+            if lock.locked() and not force_refresh:
+                 # We return what we have from DB (which might have just been updated)
+                 # and let the background task continue.
+                 pass
+            else:
+                async with lock:
+                    # Check cache again inside lock
+                    if not force_refresh:
+                        cached = cache_service.get(cache_key)
+                        if cached: return cached
                     
-                print(f"✅ [Search] {len(validated_external)} valid results found for '{keyword}'")
-                
-                if validated_external:
-                    # Save ONLY valid results to DB
-                    saved_count = await self._save_results_to_db(keyword, validated_external)
-                    print(f"💾 [Search] Saved {saved_count} new links to DB for '{keyword}'")
-                    # Trigger Quark transfer
-                    if settings.QUARK_AUTO_TRANSFER:
-                        asyncio.create_task(self._trigger_quark_transfer(validated_external))
-                    # Merge with existing
-                    all_results = self._merge_results(all_results, validated_external)
+                    tg_results: List[SearchResult] = []
+                    plugin_results: List[SearchResult] = []
+                    
+                    channels_to_search = channels if channels else settings.default_channels
+                    
+                    if src in ["all", "tg"]:
+                        # TG search logic...
+                        print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: 4.0s)")
+                        tasks = [asyncio.create_task(telegram_searcher.search(ch, keyword, max_pages=max_pages)) for ch in channels_to_search]
+                        try:
+                            done, _ = await asyncio.wait(tasks, timeout=4.0)
+                            for task in done:
+                                try:
+                                    res = await task
+                                    if isinstance(res, list): tg_results.extend(res)
+                                except: pass
+                            for t in tasks:
+                                if not t.done(): t.cancel()
+                        except: pass
+
+                    if src in ["all", "plugin"]:
+                        print(f"🔌 [Search] Searching plugins for '{keyword}'")
+                        plugin_results = await self.search_plugins(keyword, plugins)
+
+                    # Combine and merge new findings
+                    new_external_results = self._merge_results(tg_results, plugin_results)
+                    
+                    # Filter by cloud types BEFORE validation to save time
+                    target_types = cloud_types if cloud_types else ["quark"]
+                    new_external_results = [
+                        res for res in new_external_results 
+                        if any(l.type in target_types for l in res.links)
+                    ]
+                    # Filter individual links within results
+                    for res in new_external_results:
+                        res.links = [l for l in res.links if l.type in target_types]
+                    
+                    # Limit candidates to a reasonable number to avoid long validation
+                    val_limit = (max_results * 2) if max_results else 20
+                    if len(new_external_results) > val_limit:
+                        new_external_results = new_external_results[:val_limit]
+                    
+                    if new_external_results:
+                        print(f"🛡️ [Search] Validating {len(new_external_results)} candidates for '{keyword}'...")
+                        validated_external = await self._validate_all_results_deep(new_external_results)
+                        
+                        if max_results and len(validated_external) > max_results:
+                            validated_external = validated_external[:max_results]
+                            
+                        print(f"✅ [Search] {len(validated_external)} valid results found for '{keyword}'")
+                        
+                        if validated_external:
+                            # Save ONLY valid results to DB
+                            saved_count = await self._save_results_to_db(keyword, validated_external)
+                            print(f"💾 [Search] Saved {saved_count} new links to DB for '{keyword}'")
+                            # Merge with existing
+                            all_results = self._merge_results(all_results, validated_external)
+                            # Trigger Quark transfer
+                            if settings.QUARK_AUTO_TRANSFER:
+                                asyncio.create_task(self._trigger_quark_transfer(validated_external))
 
         # 3. Build merged view for response
         merged_by_type: Dict = {}

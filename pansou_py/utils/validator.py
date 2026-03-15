@@ -53,79 +53,18 @@ class LinkValidator:
         except Exception:
             return False
 
-    async def _check_aliyun(self, session: aiohttp.ClientSession, url: str, timeout: int = 6) -> bool:
-        """Robust check for Aliyun using their anonymous share API."""
-        try:
-            # Extract share_id
-            match = re.search(r"/s/([a-zA-Z0-9]+)", url)
-            if not match:
-                return False
-            share_id = match.group(1)
-            
-            api_url = f"https://api.aliyundrive.com/adrive/v3/share_link/get_share_by_anonymous?share_id={share_id}"
-            payload = {"share_id": share_id}
-            
-            async with session.post(api_url, json=payload, headers=self.headers, proxy=self.proxy, timeout=timeout) as resp:
-                if resp.status == 404:
-                    return False
-                if resp.status in [403, 429]:
-                    # Rate limited or IP blocked. Don't mark as dead, assume valid to be safe.
-                    print(f"🛡️ [Validator] Aliyun API rate limited ({resp.status}). Assuming valid for {url}")
-                    return True
-                if resp.status != 200:
-                    return False
-                
-                data = await resp.json()
-                if data.get("code") == "NotFound.ShareLink":
-                    return False
-                # If we have a file_id or other share info, it's definitely valid
-                if data.get("share_name") or data.get("creator_id"):
-                    return True
-                return False
-        except Exception as e:
-            # print(f"DEBUG: Aliyun API Error: {e}")
-            return False # Strict Fail-Close for other errors
-
     async def check_link(self, session: aiohttp.ClientSession, url: str, timeout: int = 6) -> bool:
-        """Return True if link is likely valid, False if dead."""
-        is_valid = False
+        """Return True if link is likely valid, False if dead. Focused on Quark."""
         try:
             # Detect platform
             if "pan.quark.cn" in url:
-                is_valid = await self._check_quark(session, url, timeout=timeout)
+                return await self._check_quark(session, url, timeout=timeout)
             
-            elif "aliyundrive.com" in url or "alipan.com" in url:
-                is_valid = await self._check_aliyun(session, url, timeout=timeout)
+            # Reject other platforms to save time and focus on Quark
+            # print(f"🛡️ [Validator] Skipping non-Quark link: {url}")
+            return False
             
-            else:
-                # For Baidu and others, use HTML pattern matching
-                platform = "common"
-                referer = "https://www.google.com"
-                if "pan.baidu.com" in url:
-                    platform = "baidu"
-                    referer = "https://pan.baidu.com/"
-
-                headers = self.headers.copy()
-                headers["Referer"] = referer
-
-                async with session.get(url, headers=headers, proxy=self.proxy, timeout=timeout) as response:
-                    if response.status == 404:
-                        is_valid = False
-                    elif response.status >= 400 and platform != "baidu":
-                        is_valid = False
-                    else:
-                        text = await response.text()
-                        is_valid = True
-                        for p in PATTERNS.get(platform, PATTERNS["common"]):
-                            if p in text:
-                                is_valid = False
-                                break
-            
-            if not is_valid:
-                print(f"🛡️ [Validator] DEAD -> {url}")
-            return is_valid
-        except Exception as e:
-            # print(f"🛡️ [Validator] ERR checking {url}: {e}")
+        except Exception:
             return False
 
     async def filter_links(self, links: List[Dict[str, Any]], timeout: int = 6) -> List[Dict[str, Any]]:
