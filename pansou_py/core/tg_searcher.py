@@ -92,8 +92,25 @@ def _extract_title(lines: list, keyword: str = "") -> str:
     return lines[0] if lines else "Unknown"
 
 class TelegramSearcher:
+    _session: Optional[aiohttp.ClientSession] = None
+    _lock = asyncio.Lock()
+
     def __init__(self):
         self.proxy = settings.PROXY if settings.PROXY else None
+
+    async def get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            async with self._lock:
+                if self._session is None or self._session.closed:
+                    connector = aiohttp.TCPConnector(
+                        limit=100,
+                        ttl_dns_cache=300,
+                        use_dns_cache=True,
+                        force_close=False,
+                        enable_cleanup_closed=True
+                    )
+                    self._session = aiohttp.ClientSession(connector=connector)
+        return self._session
 
     async def fetch_html(self, url: str) -> str:
         headers = {
@@ -110,10 +127,20 @@ class TelegramSearcher:
             "Upgrade-Insecure-Requests": "1"
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, proxy=self.proxy, timeout=30) as response:
+        session = await self.get_session()
+        try:
+            async with session.get(url, headers=headers, proxy=self.proxy, timeout=aiohttp.ClientTimeout(total=20)) as response:
                 response.raise_for_status()
                 return await response.text()
+        except Exception as e:
+            # If the session is corrupted or closed unexpectedly, try to reset it
+            if isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)):
+                print(f"⚠️ [TG Fetch] Session error: {e}. Resetting session...")
+                async with self._lock:
+                    if self._session and not self._session.closed:
+                        await self._session.close()
+                    self._session = None
+            raise
 
     def build_search_url(self, channel: str, keyword: str, next_page_param: str = "") -> str:
         base_url = f"https://t.me/s/{channel}"

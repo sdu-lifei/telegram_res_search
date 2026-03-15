@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 class Settings(BaseSettings):
-    CHANNELS: str = Field(default="tgsearchers5,Quark_Movies,Aliyun_4K_Movies,vip115hot,dianying4K")
+    CHANNELS: str = Field(default="tgsearchers5,Quark_Movies,Aliyun_4K_Movies,vip115hot,dianying4K,Quark_Pansou,quarkpan,Quark_Video,v_quark,quark_share")
     PORT: int = Field(default=8888)
     PROXY: Optional[str] = Field(default=None)
 
