@@ -142,15 +142,32 @@ class SearchService:
             # Combine and merge new findings
             new_external_results = self._merge_results(tg_results, plugin_results)
             
-            # Limit external results if requested (e.g. for quick WeChat reply)
-            if max_results and len(new_external_results) > max_results:
-                new_external_results = new_external_results[:max_results]
+            # Filter by cloud types BEFORE validation to save time
+            if cloud_types:
+                new_external_results = [
+                    res for res in new_external_results 
+                    if any(l.type in cloud_types for l in res.links)
+                ]
+                # Filter individual links within results
+                for res in new_external_results:
+                    res.links = [l for l in res.links if l.type in cloud_types]
+            
+            # Limit candidates to a reasonable number to avoid long validation
+            # If max_results is set, we check up to double that to find enough valid ones
+            val_limit = (max_results * 2) if max_results else 20
+            if len(new_external_results) > val_limit:
+                new_external_results = new_external_results[:val_limit]
             
             if new_external_results:
-                print(f"🛡️ [Search] Validating {len(new_external_results)} new external results...")
+                print(f"🛡️ [Search] Validating {len(new_external_results)} candidates for '{keyword}'...")
                 # Validate external results BEFORE saving
                 validated_external = await self._validate_all_results_deep(new_external_results)
-                print(f"✅ [Search] {len(validated_external)}/{len(new_external_results)} external results are valid")
+                
+                # Further limit to max_results if specified
+                if max_results and len(validated_external) > max_results:
+                    validated_external = validated_external[:max_results]
+                    
+                print(f"✅ [Search] {len(validated_external)} valid results found for '{keyword}'")
                 
                 if validated_external:
                     # Save ONLY valid results to DB
@@ -260,15 +277,15 @@ class SearchService:
     async def _save_results_to_db(self, keyword: str, results: List[SearchResult]) -> int:
         count = 0
         async with async_session() as session:
-            for r in results:
-                for link in r.links:
-                    try:
-                        # Direct add without begin_nested to avoid sqlite issues
-                        # We use a fresh transaction per link to ensure partial success
-                        async with session.begin():
-                            # Check if exists inside the transaction
-                            query = select(Resource).where(Resource.url == link.url)
-                            existing = (await session.execute(query)).scalar_one_or_none()
+            try:
+                # One transaction for the whole batch is MUCH faster in SQLite
+                async with session.begin():
+                    for r in results:
+                        for link in r.links:
+                            # Check if URL already exists locally
+                            query = select(Resource.id).where(Resource.url == link.url)
+                            existing = (await session.execute(query)).first()
+                            
                             if not existing:
                                 session.add(Resource(
                                     keyword=keyword,
@@ -283,12 +300,11 @@ class SearchService:
                                     last_validated=datetime.utcnow()
                                 ))
                                 count += 1
-                        # Commit is implicit at end of 'async with session.begin()'
-                    except IntegrityError:
-                        # Already exists, skip
-                        pass
-                    except Exception as e:
-                        print(f"❌ [DB] Error saving resource: {e}")
+            except IntegrityError:
+                # Should not happen with pre-check but handle just in case
+                pass
+            except Exception as e:
+                print(f"❌ [DB] Error batch saving resources: {e}")
         return count
 
     async def _trigger_quark_transfer(self, results: List[SearchResult]):

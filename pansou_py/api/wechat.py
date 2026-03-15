@@ -143,12 +143,12 @@ async def wechat_message(request: Request, background_tasks: BackgroundTasks):
     # Note: SearchService already handles Database-First logic and re-validation caching.
     
     async def get_results():
-        # Fast search (1 page, 5 results max for quick response)
-        return await search_service.search(keyword=keyword, max_pages=1, max_results=5)
+        # Fast search (1 page, 10 results max for quick response, Quark only as requested)
+        return await search_service.search(keyword=keyword, max_pages=1, max_results=10, cloud_types=["quark"])
 
     try:
-        # Wait up to 4.75 seconds to catch the WeChat deadline
-        results_data = await asyncio.wait_for(get_results(), timeout=4.75)
+        # Wait up to 2.0 seconds for quick feedback
+        results_data = await asyncio.wait_for(get_results(), timeout=2.0)
         
         if results_data.get("total", 0) > 0:
             reply = _format_results(results_data, keyword)
