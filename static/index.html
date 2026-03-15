@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PanSou Python Test UI</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #1a73e8; }
+        .search-box { display: flex; margin-bottom: 20px; }
+        input[type="text"] { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 6px 0 0 6px; outline: none; }
+        button { padding: 12px 24px; background: #1a73e8; color: white; border: none; font-size: 16px; border-radius: 0 6px 6px 0; cursor: pointer; transition: background 0.3s; }
+        button:hover { background: #1557b0; }
+        .result-item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .result-item:last-child { border-bottom: none; }
+        .result-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #202124; }
+        .result-meta { font-size: 13px; color: #5f6368; margin-bottom: 8px; }
+        .result-links a { display: inline-block; background: #e8f0fe; color: #1a73e8; padding: 6px 12px; text-decoration: none; border-radius: 16px; font-size: 14px; margin-right: 8px; margin-bottom: 8px; }
+        .loader { display: none; text-align: center; padding: 20px; color: #666; }
+        .badge { display: inline-block; padding: 2px 6px; background: #ea4335; color: white; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PanSou Python 搜索测试</h1>
+        
+        <div class="search-box">
+            <input type="text" id="keyword" placeholder="输入搜索关键词，例如：python" onkeypress="if(event.key === 'Enter') search()">
+            <button onclick="search()">搜索</button>
+        </div>
+
+        <div id="loader" class="loader">正在搜索，模拟网络延迟大概半秒...</div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        async function search() {
+            const kw = document.getElementById('keyword').value.trim();
+            if(!kw) return;
+
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        kw: kw,
+                        res: "all"
+                    })
+                });
+                
+                const data = await response.json();
+                document.getElementById('loader').style.display = 'none';
+                
+                if(data.results && data.results.length > 0) {
+                    renderResults(data.results);
+                } else {
+                    document.getElementById('results').innerHTML = '<p style="text-align:center;color:#666;">未找到结果</p>';
+                }
+            } catch (error) {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('results').innerHTML = `<p style="color:red">请求错误: ${error.message}</p>`;
+            }
+        }
+
+        function renderResults(results) {
+            const container = document.getElementById('results');
+            let html = '';
+            
+            results.forEach(res => {
+                let linksHtml = res.links.map(link => {
+                    let pwd = link.password ? ` <span class="badge">密码: ${link.password}</span>` : '';
+                    return `<a href="${link.url}" target="_blank">${link.type} 网盘${pwd}</a>`;
+                }).join('');
+
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">${res.title}</div>
+                        <div class="result-meta">
+                            来源: <b>${res.channel}</b> | 
+                            时间: ${new Date(res.datetime).toLocaleString()}
+                        </div>
+                        <div class="result-links">
+                            ${linksHtml}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

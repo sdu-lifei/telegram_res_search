@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+httpx
+PyJWT
+diskcache
+async-lru
+beautifulsoup4
+lxml
+aiohttp
+pytest-asyncio
+sqlalchemy
+aiosqlite
