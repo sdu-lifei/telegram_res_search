@@ -1,3 +1,7 @@
+services:
+  - type: web
+    name: pansou-py
+    env: python
     buildCommand: "pip install -r requirements.txt && pip install -e ."
     startCommand: "python main.py"
     envVars:
