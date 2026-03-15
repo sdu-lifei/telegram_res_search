@@ -38,6 +38,9 @@ class LinkValidator:
             }
             
             async with session.post(api_url, json=payload, headers=self.headers, proxy=self.proxy, timeout=timeout) as resp:
+                if resp.status in [403, 429]:
+                    print(f"🛡️ [Validator] Quark API rate limited ({resp.status}). Assuming valid for {url}")
+                    return True
                 if resp.status != 200:
                     # 404 is common for dead links in this API
                     return False
@@ -65,8 +68,11 @@ class LinkValidator:
             async with session.post(api_url, json=payload, headers=self.headers, proxy=self.proxy, timeout=timeout) as resp:
                 if resp.status == 404:
                     return False
+                if resp.status in [403, 429]:
+                    # Rate limited or IP blocked. Don't mark as dead, assume valid to be safe.
+                    print(f"🛡️ [Validator] Aliyun API rate limited ({resp.status}). Assuming valid for {url}")
+                    return True
                 if resp.status != 200:
-                    # If we can't get a definitive 200, it's safer to assume invalid or use pattern backup
                     return False
                 
                 data = await resp.json()
@@ -76,8 +82,9 @@ class LinkValidator:
                 if data.get("share_name") or data.get("creator_id"):
                     return True
                 return False
-        except Exception:
-            return False # Strict Fail-Close
+        except Exception as e:
+            # print(f"DEBUG: Aliyun API Error: {e}")
+            return False # Strict Fail-Close for other errors
 
     async def check_link(self, session: aiohttp.ClientSession, url: str, timeout: int = 6) -> bool:
         """Return True if link is likely valid, False if dead."""

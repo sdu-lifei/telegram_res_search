@@ -90,7 +90,7 @@ async def _do_search_and_cache(keyword: str):
     try:
         # Deep search: 5 pages
         # This will automatically validate and save results to the local database
-        await search_service.search(keyword=keyword, max_pages=5)
+        await search_service.search(keyword=keyword, max_pages=5, force_refresh=True)
     except:
         pass
 

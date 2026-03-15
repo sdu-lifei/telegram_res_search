@@ -12,6 +12,16 @@ from pansou_py.utils.validator import link_validator
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
+
+_search_locks: Dict[str, asyncio.Lock] = {}
+_locks_access = asyncio.Lock()
+
+async def get_keyword_lock(keyword: str) -> asyncio.Lock:
+    async with _locks_access:
+        if keyword not in _search_locks:
+            _search_locks[keyword] = asyncio.Lock()
+        return _search_locks[keyword]
 
 class SearchService:
     def __init__(self):
@@ -57,7 +67,21 @@ class SearchService:
             if cached:
                 return cached
 
-        # 1. Search local resource database
+        # Use per-keyword lock to avoid duplicate parallel searches
+        lock = await get_keyword_lock(keyword)
+        
+        # If this is a foreground request and the keyword is already being searched by a background task, 
+        # return early to let user know it's in progress instead of waiting and timing out.
+        if lock.locked() and not force_refresh:
+            return {"total": 0, "results": [], "merged_by_type": {}, "status": "in_progress"}
+
+        async with lock:
+            # Re-check cache inside lock in case another task just finished it
+            if not force_refresh:
+                cached = cache_service.get(cache_key)
+                if cached: return cached
+
+            # 1. Search local resource database
         db_resources = await self._search_local_db(keyword, cloud_types)
         all_results = []
         if db_resources:
@@ -130,7 +154,8 @@ class SearchService:
                 
                 if validated_external:
                     # Save ONLY valid results to DB
-                    await self._save_results_to_db(keyword, validated_external)
+                    saved_count = await self._save_results_to_db(keyword, validated_external)
+                    print(f"💾 [Search] Saved {saved_count} new links to DB for '{keyword}'")
                     # Trigger Quark transfer
                     if settings.QUARK_AUTO_TRANSFER:
                         asyncio.create_task(self._trigger_quark_transfer(validated_external))
@@ -232,27 +257,39 @@ class SearchService:
                 if req:
                     req.status = status
 
-    async def _save_results_to_db(self, keyword: str, results: List[SearchResult]):
+    async def _save_results_to_db(self, keyword: str, results: List[SearchResult]) -> int:
+        count = 0
         async with async_session() as session:
-            async with session.begin():
-                for r in results:
-                    for link in r.links:
-                        # Check if URL already exists
-                        query = select(Resource).where(Resource.url == link.url)
-                        existing = (await session.execute(query)).scalar_one_or_none()
-                        if not existing:
-                            session.add(Resource(
-                                keyword=keyword,
-                                title=r.title,
-                                description=r.description,
-                                url=link.url,
-                                password=link.password,
-                                disk_type=link.type,
-                                source=f"tg:{r.channel}",
-                                datetime=datetime.fromisoformat(r.datetime.replace("Z", "+00:00")),
-                                images=r.images,
-                                last_validated=datetime.utcnow()
-                            ))
+            for r in results:
+                for link in r.links:
+                    try:
+                        # Direct add without begin_nested to avoid sqlite issues
+                        # We use a fresh transaction per link to ensure partial success
+                        async with session.begin():
+                            # Check if exists inside the transaction
+                            query = select(Resource).where(Resource.url == link.url)
+                            existing = (await session.execute(query)).scalar_one_or_none()
+                            if not existing:
+                                session.add(Resource(
+                                    keyword=keyword,
+                                    title=r.title,
+                                    description=r.description,
+                                    url=link.url,
+                                    password=link.password,
+                                    disk_type=link.type,
+                                    source=f"tg:{r.channel}",
+                                    datetime=datetime.fromisoformat(r.datetime.replace("Z", "+00:00")),
+                                    images=r.images,
+                                    last_validated=datetime.utcnow()
+                                ))
+                                count += 1
+                        # Commit is implicit at end of 'async with session.begin()'
+                    except IntegrityError:
+                        # Already exists, skip
+                        pass
+                    except Exception as e:
+                        print(f"❌ [DB] Error saving resource: {e}")
+        return count
 
     async def _trigger_quark_transfer(self, results: List[SearchResult]):
         for r in results:
