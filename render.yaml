@@ -2,16 +2,13 @@ services:
   - type: web
     name: pansou-py
     env: python
+    plan: free
     buildCommand: "pip install -r requirements.txt && pip install -e ."
     startCommand: "python main.py"
     envVars:
       - key: PORT
         value: 10000
       - key: DATABASE_PATH
-        value: /data/pansou.db
+        value: ./pansou.db
       - key: PYTHON_VERSION
         value: 3.10.0
-    disk:
-      name: pansou-data
-      mountPath: /data
-      sizeGB: 1
