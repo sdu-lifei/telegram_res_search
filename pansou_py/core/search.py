@@ -139,10 +139,10 @@ class SearchService:
                     
                     if src in ["all", "tg"]:
                         # TG search logic...
-                        print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: 4.0s)")
+                        print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: 3.0s)")
                         tasks = [asyncio.create_task(telegram_searcher.search(ch, keyword, max_pages=max_pages)) for ch in channels_to_search]
                         try:
-                            done, _ = await asyncio.wait(tasks, timeout=4.0)
+                            done, _ = await asyncio.wait(tasks, timeout=3.0)
                             for task in done:
                                 try:
                                     res = await task
@@ -169,8 +169,8 @@ class SearchService:
                     for res in new_external_results:
                         res.links = [l for l in res.links if l.type in target_types]
                     
-                    # Limit candidates to a reasonable number to avoid long validation
-                    val_limit = (max_results * 2) if max_results else 20
+                    # Limit candidates to reduce validation time (especially important for WeChat path)
+                    val_limit = (max_results * 2) if max_results else 12
                     if len(new_external_results) > val_limit:
                         new_external_results = new_external_results[:val_limit]
                     

@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 class Settings(BaseSettings):
-    CHANNELS: str = Field(default="tgsearchers5,Quark_Movies,Aliyun_4K_Movies,vip115hot,dianying4K,Quark_Pansou,quarkpan,Quark_Video,v_quark,quark_share")
+    CHANNELS: str = Field(default="tgsearchers5,Quark_Movies,Aliyun_4K_Movies,vip115hot,dianying4K,Quark_qhy,shareAliyun,aliyungaoqingshipin")
     PORT: int = Field(default=8888)
     PROXY: Optional[str] = Field(default=None)
 
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Validation
     VALIDATE_LINKS: bool = Field(default=True)
-    VALIDATE_TIMEOUT: int = Field(default=6)
+    VALIDATE_TIMEOUT: int = Field(default=3)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -21,7 +21,7 @@ class LinkValidator:
             "Referer": "https://pan.quark.cn/",
         }
 
-    async def _check_quark(self, session: aiohttp.ClientSession, url: str, timeout: int = 6) -> bool:
+    async def _check_quark(self, session: aiohttp.ClientSession, url: str, timeout: int = 3) -> bool:
         """Special check for Quark using their internal API."""
         try:
             # Extract pwd_id from URL: https://pan.quark.cn/s/a500126895e7
@@ -53,7 +53,7 @@ class LinkValidator:
         except Exception:
             return False
 
-    async def check_link(self, session: aiohttp.ClientSession, url: str, timeout: int = 6) -> bool:
+    async def check_link(self, session: aiohttp.ClientSession, url: str, timeout: int = 3) -> bool:
         """Return True if link is likely valid, False if dead. Focused on Quark."""
         try:
             # Detect platform
@@ -67,7 +67,7 @@ class LinkValidator:
         except Exception:
             return False
 
-    async def filter_links(self, links: List[Dict[str, Any]], timeout: int = 6) -> List[Dict[str, Any]]:
+    async def filter_links(self, links: List[Dict[str, Any]], timeout: int = 3) -> List[Dict[str, Any]]:
         """Validate a list of links concurrently and return only valid ones."""
         if not links:
             return []
