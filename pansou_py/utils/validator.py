@@ -22,7 +22,12 @@ class LinkValidator:
         }
 
     async def _check_quark(self, session: aiohttp.ClientSession, url: str, timeout: int = 3) -> bool:
-        """Special check for Quark using their internal API."""
+        """Special check for Quark using their internal API.
+        
+        Returns:
+            True  = link is valid OR we cannot determine (timeout/network error)
+            False = Quark API explicitly confirmed the link is dead
+        """
         try:
             # Extract pwd_id from URL: https://pan.quark.cn/s/a500126895e7
             match = re.search(r"/s/([a-zA-Z0-9]+)", url)
@@ -37,21 +42,34 @@ class LinkValidator:
                 "support_visit_limit_private_share": True
             }
             
-            async with session.post(api_url, json=payload, headers=self.headers, proxy=self.proxy, timeout=timeout) as resp:
+            ct = aiohttp.ClientTimeout(total=timeout)
+            async with session.post(api_url, json=payload, headers=self.headers, proxy=self.proxy, timeout=ct) as resp:
                 if resp.status in [403, 429]:
-                    print(f"🛡️ [Validator] Quark API rate limited ({resp.status}). Assuming valid for {url}")
+                    # Rate limited — can't verify, assume valid
                     return True
-                if resp.status != 200:
-                    # 404 is common for dead links in this API
+                if resp.status == 404:
+                    # Quark explicitly says: link does not exist
                     return False
+                if resp.status != 200:
+                    # Unexpected HTTP status — can't determine, assume valid
+                    return True
                 
                 data = await resp.json()
-                # Status 200 and code 0 means valid
+                # Status 200 and code 0 means confirmed valid
                 if data.get("status") == 200 and data.get("code") == 0:
                     return True
+                # Quark API explicitly says this share is invalid/expired
                 return False
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+            # Timeout ≠ invalid! On overseas servers, Quark API is slow.
+            # Cannot determine validity, so assume valid.
+            return True
+        except (aiohttp.ClientError, OSError):
+            # Network error — can't reach Quark API, assume valid
+            return True
         except Exception:
-            return False
+            # Unexpected error — err on the side of showing the link
+            return True
 
     async def check_link(self, session: aiohttp.ClientSession, url: str, timeout: int = 3) -> bool:
         """Return True if link is likely valid, False if dead. Focused on Quark."""
