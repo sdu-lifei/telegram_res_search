@@ -143,25 +143,28 @@ async def wechat_message(request: Request, background_tasks: BackgroundTasks):
     # Note: SearchService already handles Database-First logic and re-validation caching.
     
     async def get_results():
-        # Fast search (2 pages, 10 results max for quick response, Quark only as requested)
-        return await search_service.search(keyword=keyword, max_pages=2, max_results=10, cloud_types=["quark"])
+        # Fast search: 1 page, 3 results max, 2s TG timeout → fits within 4.5s WeChat limit
+        return await search_service.search(
+            keyword=keyword, max_pages=1, max_results=3,
+            cloud_types=["quark"], tg_timeout=2.0
+        )
 
     try:
-        # Wait up to 4.5s for quick feedback (WeChat 5s limit; TG search takes ~3s + ~1s validation)
+        # Wait up to 4.5s for quick feedback (WeChat 5s limit)
         results_data = await asyncio.wait_for(get_results(), timeout=4.5)
         
         if results_data.get("total", 0) > 0:
             reply = _format_results(results_data, keyword)
-            # Enrich DB in background if it was just a fast search
+            # Enrich DB in background with deeper search
             background_tasks.add_task(_do_search_and_cache, keyword)
         else:
-            # Reached here but no results found in time
-            reply = f"😔 暂时未搜到「{keyword}」，后台已记录并开始深度搜寻...\n\n👉 请过几个小时后再发送「{keyword}」重试。"
+            # No results found in time
+            reply = f"😔 暂时未搜到「{keyword}」，后台已开始深度搜寻...\n\n👉 请过几分钟后再发送「{keyword}」重试。"
             background_tasks.add_task(_do_search_and_cache, keyword)
             
     except asyncio.TimeoutError:
         # Search timed out, notify user to try same keyword later
-        reply = f"⏳ 资源「{keyword}」搜寻中，由于请求较多，请过几个小时后再次发送相同关键词获取结果。"
+        reply = f"⏳ 资源「{keyword}」搜寻中，请过几分钟后再次发送相同关键词获取结果。"
         background_tasks.add_task(_do_search_and_cache, keyword)
     except Exception as e:
         reply = f"⚠️ 搜「{keyword}」时出错了，请稍后再试。"

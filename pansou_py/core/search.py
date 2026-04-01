@@ -55,7 +55,8 @@ class SearchService:
         plugins: Optional[List[str]] = None,
         cloud_types: Optional[List[str]] = None,
         max_pages: int = 5,
-        max_results: Optional[int] = None
+        max_results: Optional[int] = None,
+        tg_timeout: float = 3.0
     ) -> dict:
         keyword = normalize_keyword(keyword)
         if not keyword:
@@ -139,10 +140,10 @@ class SearchService:
                     
                     if src in ["all", "tg"]:
                         # TG search logic...
-                        print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: 3.0s)")
+                        print(f"📡 [Search] Searching Telegram channels: {channels_to_search} (timeout: {tg_timeout}s)")
                         tasks = [asyncio.create_task(telegram_searcher.search(ch, keyword, max_pages=max_pages)) for ch in channels_to_search]
                         try:
-                            done, _ = await asyncio.wait(tasks, timeout=3.0)
+                            done, _ = await asyncio.wait(tasks, timeout=tg_timeout)
                             for task in done:
                                 try:
                                     res = await task

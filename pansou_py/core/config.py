@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Quark settings
     QUARK_COOKIE: Optional[str] = Field(default=None)
-    QUARK_AUTO_TRANSFER: bool = Field(default=True)
+    QUARK_AUTO_TRANSFER: bool = Field(default=False)
     
     # Task Queue / Scheduler
     SCHEDULE_INTERVAL: int = Field(default=30)  # minutes
