@@ -1,0 +1,36 @@
+name: Weekly GEO monitor
+
+on:
+  schedule:
+    - cron: "17 2 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Scan public site
+        env:
+          SITE_URL: https://panss.dpdns.org
+        run: |
+          npx --yes aeorank-cli@0.0.1 scan "$SITE_URL" --format json --no-files > /tmp/geo.json
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync("/tmp/geo.json", "utf8"));
+          const rows = report.dimensions.map(({ name, score, maxScore, status, hint }) =>
+            `| ${name} | ${score}/${maxScore} | ${status} | ${hint} |`
+          );
+          const summary = [
+            `# GEO score: ${report.score}/100 (${report.grade})`,
+            "",
+            "| Dimension | Score | Status | Recommendation |",
+            "|---|---:|---|---|",
+            ...rows,
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          console.log(summary);
+          if (report.score < 70) process.exitCode = 1;
+          NODE
