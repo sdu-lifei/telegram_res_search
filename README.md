@@ -1,20 +1,82 @@
-# PanSou Python
+<div align="center">
 
-FastAPI service for searching cloud-drive resources from Telegram channels and plugins. This fork is moving toward a click-time Quark transfer flow: users receive an internal open link, and the backend transfers the original Quark share into the owner drive before returning an owner-generated share link.
+# 盘搜（PanSou）
 
-**Live site:** [https://panss.dpdns.org/](https://panss.dpdns.org/)
+聚合公开网盘资源索引，自动检查链接，并优先展示可用结果。
 
-## Current Flow
+[立即使用](https://panss.dpdns.org/) · [使用指南](https://panss.dpdns.org/guides) · [关于盘搜](https://panss.dpdns.org/about)
 
-- `/api/search` searches local SQLite first, then Telegram/plugin sources.
-- Valid Quark links are stored in `resources`.
-- When `QUARK_CLICK_TRANSFER=true`, search responses expose `/r/{resource_id}` open links instead of raw third-party Quark URLs.
-- `/api/resources/{resource_id}/open` records a click and queues a transfer job.
-- `/r/{resource_id}` is a browser-friendly redirect/waiting endpoint.
-- `web_fallback` expands recall by searching indexed resource pages and extracting Quark links when Telegram sources miss.
-- `pansou_py/core/quark.py` has a Phase 2 mock transfer client by default. Real Quark web API support is intentionally isolated for a later phase.
+</div>
 
-## Setup
+![盘搜最新版首页](docs/images/homepage-latest.jpg)
+
+## 盘搜是什么
+
+盘搜是一个面向中文用户的公开网盘资源搜索与链接检查工具。它把分散在公开网页、Telegram 频道和插件数据源中的索引统一整理，在用户搜索时完成聚合、去重与可用性检查，减少反复打开失效链接的时间。
+
+盘搜不上传、不存储资源文件，只展示公开页面中可检索到的索引信息。线上服务地址：
+
+**https://panss.dpdns.org/**
+
+## 使用案例
+
+### 1. 搜索公开学习资料
+
+输入完整名称或主题词，例如“机器学习”。结果页会展示来源、更新时间和资源状态，并把相近结果集中呈现。
+
+![搜索机器学习公开资料](docs/images/search-machine-learning-latest.jpg)
+
+### 2. 查看详情并检查链接
+
+进入详情页后可以先核对标题、说明、来源和更新时间，再通过“检查并打开资源”执行打开前验证。
+
+![机器学习资料详情与链接检查](docs/images/detail-machine-learning-latest.jpg)
+
+## 为什么使用盘搜
+
+| 能力 | 说明 |
+| --- | --- |
+| 多来源聚合 | 同时查询本地索引、公开频道和插件来源 |
+| 自动去重 | 合并相同或重复的分享链接，减少无效结果 |
+| 可用性检查 | 搜索与打开环节检查链接状态，优先展示可用资源 |
+| 持续更新 | 后台采集任务持续补充新索引并清理失效内容 |
+| 搜索建议 | 支持名称、年份、演员、季数、语言和清晰度等组合关键词 |
+| 响应式界面 | 桌面端和移动端均可直接使用，支持日间/夜间模式 |
+
+## 使用方法
+
+1. 打开 [盘搜](https://panss.dpdns.org/)。
+2. 输入完整名称；结果不准确时补充年份、版本或清晰度。
+3. 选择结果进入详情页，核对来源与更新时间。
+4. 点击“检查并打开资源”，以网盘页面的最终状态为准。
+
+## 工作流程
+
+```text
+用户搜索
+   ↓
+本地 SQLite 索引
+   ↓
+Telegram / 插件 / Web fallback
+   ↓
+解析、去重、链接验证
+   ↓
+搜索结果与详情页
+   ↓
+打开前再次检查
+```
+
+## 技术组成
+
+- **API：** FastAPI、SQLAlchemy、SQLite
+- **前端：** Next.js 16、React 19、TypeScript
+- **采集：** Telegram 公开频道、插件数据源、网页索引 fallback
+- **后台任务：** 定时采集、链接验证、存储空间清理、流量报告
+- **部署：** Nginx、systemd、HTTPS
+
+## 本地运行
+
+### 后端
 
 ```bash
 python -m venv .venv
@@ -24,67 +86,62 @@ cp .env.example .env
 python main.py
 ```
 
-Open `http://localhost:8888`.
+后端默认运行在 `http://localhost:8888`。
 
-## Important Environment Variables
-
-- `PUBLIC_BASE_URL`: public base URL used in WeChat replies and search responses, for example `https://example.com`.
-- `QUARK_CLICK_TRANSFER`: when `true`, hide original source links and return internal open links.
-- `QUARK_MOCK_TRANSFER`: when `true`, generate deterministic mock Quark share links for local testing.
-- `QUARK_COOKIE`: owner Quark cookie. Do not commit a real value.
-- `QUARK_SAVE_FOLDER_ID`: owner folder fid for saved files. Empty saves to root.
-- `QUARK_SHARE_EXPIRE_DAYS`: generated owner-share expiry. `0` requests a permanent share.
-- `QUARK_SHARE_PASSWORD`: optional password for generated owner shares.
-- `AUTH_ENABLED`: enables bearer-token auth for protected API/admin endpoints.
-- `WECHAT_TOKEN`: enables WeChat official account webhook verification.
-- `DATABASE_PATH`: SQLite database path.
-
-## Useful Endpoints
-
-- `GET /api/health`
-- `GET /api/search?kw=keyword&res=all`
-- `POST /api/search`
-- `POST /api/resources/{resource_id}/open`
-- `POST /api/resources/{resource_id}/open?wait=true`
-- `GET /r/{resource_id}`
-- `GET /api/admin/stats`
-- `POST /wechat`
-
-## Tests
+### 前端
 
 ```bash
-pytest
+cd frontend-clone
+npm ci
+npm run dev
 ```
 
-## Search Benchmark
+前端开发服务默认运行在 `http://localhost:3000`，通过 `NEXT_PUBLIC_API_BASE_URL` 指向后端。
 
-Measure Quark search hit rate against the built-in popular keyword set:
+## 关键配置
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `PUBLIC_BASE_URL` | 线上服务基础地址 |
+| `DATABASE_PATH` | SQLite 数据库路径 |
+| `CHANNELS` | 公开 Telegram 频道列表 |
+| `VALIDATE_LINKS` | 是否检查分享链接 |
+| `QUARK_CLICK_TRANSFER` | 是否启用点击时处理流程 |
+| `QUARK_MOCK_TRANSFER` | 本地测试时使用模拟处理 |
+| `QUARK_COOKIE` | 真实夸克操作所需 Cookie，禁止提交 |
+| `AUTH_ENABLED` | 是否启用受保护接口认证 |
+| `WECHAT_TOKEN` | 微信公众号 webhook 验证 Token |
+
+完整示例见 [`.env.example`](.env.example)。
+
+## 常用接口
+
+- `GET /api/health`：服务与采集状态
+- `GET /api/search?kw=keyword&res=all`：搜索资源
+- `POST /api/search`：提交搜索请求
+- `GET /api/resources/{resource_id}`：资源详情
+- `POST /api/resources/{resource_id}/open`：检查并打开资源
+- `GET /r/{resource_id}`：浏览器友好的等待/跳转入口
+- `GET /api/admin/stats`：管理统计
+- `POST /wechat`：微信公众号入口
+
+## 验证
 
 ```bash
-python scripts/search_benchmark.py --refresh --clear-cache --timeout 8 --max-pages 6 --max-results 8 --concurrency 3
+.venv/bin/python -m pytest -q
+cd frontend-clone && npm run check
 ```
 
-The benchmark reports `success_rate`, misses, per-keyword link counts, and elapsed time.
-
-## Real Quark Transfer
-
-Local mock transfer is enabled by default. To test real save-and-reshare:
+搜索召回率可以通过内置基准脚本复测：
 
 ```bash
-QUARK_MOCK_TRANSFER=false
-QUARK_COOKIE='your-owner-quark-cookie'
-QUARK_SAVE_FOLDER_ID=0
-QUARK_SHARE_EXPIRE_DAYS=7
+.venv/bin/python scripts/search_benchmark.py \
+  --refresh --clear-cache --timeout 8 --max-pages 6 --max-results 8 --concurrency 3
 ```
 
-Then open an internal resource link or call:
+## 合规说明
 
-```bash
-curl -X POST 'http://127.0.0.1:8888/api/resources/{resource_id}/open?wait=true'
-```
-
-The backend saves the source share into the owner account, creates a new owner share, stores it in `resources.owner_share_url`, and reuses it on later clicks.
-
-## Notes
-
-The real Quark transfer flow depends on unofficial web APIs and cookie-based auth. Keep the real client behind `QuarkService`, test it with mocked HTTP responses, and expect API/rate-limit changes.
+- 本项目只提供公开索引信息，不托管资源文件。
+- 请仅搜索和使用有权访问的公开资料，并遵守所在地法律法规及网盘平台规则。
+- 公开分享链接可能随时失效，最终可用性以对应网盘页面为准。
+- 真实夸克处理依赖非官方 Web API 和 Cookie 鉴权，接口或限流策略变化时可能需要适配。
