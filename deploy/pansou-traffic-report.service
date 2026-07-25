@@ -1,0 +1,6 @@
+[Unit]
+Description=Generate PanSou 24-hour traffic report
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pansou-traffic-report

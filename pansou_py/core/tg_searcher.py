@@ -32,6 +32,29 @@ def _normalize_keyword(kw: str) -> str:
     kw = re.sub(r'^[\u540d\u79f0\u5c0f\u8d44\u6e90\u6807\u9898][\uff1a:\s]+', '', kw).strip()
     return kw
 
+def _keyword_variants(keyword: str) -> List[str]:
+    """Return conservative fallback query variants for common media title forms."""
+    keyword = _normalize_keyword(keyword)
+    variants = [keyword]
+
+    compact = re.sub(r"\s+", "", keyword)
+    if compact and compact != keyword:
+        variants.append(compact)
+
+    spaced_number = re.sub(r"([\u4e00-\u9fffA-Za-z])([0-9]+)$", r"\1 \2", compact)
+    if spaced_number and spaced_number not in variants:
+        variants.append(spaced_number)
+
+    alias_map = {
+        "沙丘2": ["沙丘 2", "沙丘 第二部", "Dune 2", "Dune Part Two"],
+        "酱园弄": ["酱园弄悬案", "酱园弄 悬案", "She's Got No Name"],
+    }
+    for alias in alias_map.get(compact, []):
+        if alias not in variants:
+            variants.append(alias)
+
+    return variants[:5]
+
 def _extract_title(lines: list, keyword: str = "") -> str:
     """Pick the best title line from a Telegram message's text lines.
     
@@ -143,12 +166,13 @@ class TelegramSearcher:
             raise
 
     def build_search_url(self, channel: str, keyword: str, next_page_param: str = "") -> str:
-        base_url = f"https://t.me/s/{channel}"
+        base_url = f"https://telegram.me/s/{channel}"
+        params = []
         if keyword:
-            base_url += f"?q={urllib.parse.quote_plus(keyword)}"
-            if next_page_param:
-                base_url += f"&{next_page_param}"
-        return base_url
+            params.append(f"q={urllib.parse.quote_plus(keyword)}")
+        if next_page_param:
+            params.append(next_page_param)
+        return base_url + (f"?{'&'.join(params)}" if params else "")
 
     def parse_search_results(self, html: str, channel: str, keyword: str = "") -> Tuple[List[SearchResult], str]:
         soup = BeautifulSoup(html, "lxml")
@@ -260,30 +284,41 @@ class TelegramSearcher:
         keyword = _normalize_keyword(keyword)  # strip '名称:' etc. prefixes
         all_results: List[SearchResult] = []
         seen_ids: set = set()
-        next_page_param = ""
 
-        # Limit depth based on max_pages
-        for pg in range(min(max_pages, 10)):
-            url = self.build_search_url(channel, keyword, next_page_param)
-            print(f"🌍 [TG Fetch] Page {pg+1} for '{channel}': {url}")
-            try:
-                html = await self.fetch_html(url)
-            except Exception as e:
-                print(f"❌ [TG Fetch] Error fetching {channel} page {pg+1}: {e}")
+        for variant_index, query in enumerate(_keyword_variants(keyword)):
+            next_page_param = ""
+            pages = min(max_pages, 10) if variant_index == 0 else min(max_pages, 2)
+
+            # Limit depth based on max_pages. Fallback variants are shallow to keep latency bounded.
+            for pg in range(pages):
+                url = self.build_search_url(channel, query, next_page_param)
+                print(f"🌍 [TG Fetch] Page {pg+1} for '{channel}': {url}")
+                try:
+                    html = await self.fetch_html(url)
+                except Exception as e:
+                    print(f"❌ [TG Fetch] Error fetching {channel} page {pg+1}: {e}")
+                    break
+
+                results, next_page_param = self.parse_search_results(html, channel, keyword)
+                print(f"📄 [TG Fetch] Page {pg+1} returned {len(results)} raw items")
+
+                new_results = [r for r in results if r.unique_id not in seen_ids]
+                for r in new_results:
+                    seen_ids.add(r.unique_id)
+                all_results.extend(new_results)
+
+                if not next_page_param or not new_results:
+                    print(f"🏁 [TG Fetch] No more results for '{channel}' at page {pg+1}")
+                    break  # No more pages
+
+            if all_results:
                 break
 
-            results, next_page_param = self.parse_search_results(html, channel, keyword)
-            print(f"📄 [TG Fetch] Page {pg+1} returned {len(results)} raw items")
-
-            new_results = [r for r in results if r.unique_id not in seen_ids]
-            for r in new_results:
-                seen_ids.add(r.unique_id)
-            all_results.extend(new_results)
-
-            if not next_page_param or not new_results:
-                print(f"🏁 [TG Fetch] No more results for '{channel}' at page {pg+1}")
-                break  # No more pages
-
         return all_results
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+        self._session = None
 
 telegram_searcher = TelegramSearcher()

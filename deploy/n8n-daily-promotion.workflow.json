@@ -1,0 +1,63 @@
+{
+  "id": "pansouDailyPromo",
+  "name": "PanSou daily compliant promotion",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "17 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f5572fd4-b2d5-4a90-a8ec-e52fc42330be",
+      "name": "Every day at 10:17",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "command": "/usr/bin/env python3 /opt/telegram-res-search/scripts/daily_promotion.py --live --json"
+      },
+      "id": "f8242dd6-7a83-4590-927d-e7b13fa0d658",
+      "name": "Publish one guide",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every day at 10:17": {
+      "main": [
+        [
+          {
+            "node": "Publish one guide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Shanghai",
+    "executionOrder": "v1"
+  },
+  "versionId": "a76ad075-7f75-4acd-9e8f-62384c8f4cf8",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,31 @@
+[Unit]
+Description=PanSou n8n Community Automation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu
+Environment=HOME=/home/ubuntu
+Environment=N8N_LISTEN_ADDRESS=127.0.0.1
+Environment=N8N_PORT=5678
+Environment=N8N_PROTOCOL=http
+Environment=N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+Environment=N8N_DIAGNOSTICS_ENABLED=false
+Environment=N8N_PERSONALIZATION_ENABLED=false
+Environment=N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+Environment=GENERIC_TIMEZONE=Asia/Shanghai
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/home/ubuntu/.config/pansou-promotion.env
+ExecStart=/usr/local/bin/n8n start
+Restart=always
+RestartSec=5
+Nice=5
+OOMScoreAdjust=500
+MemoryHigh=768M
+MemoryMax=900M
+
+[Install]
+WantedBy=multi-user.target

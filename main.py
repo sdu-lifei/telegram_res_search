@@ -8,6 +8,8 @@ from pansou_py.api.auth import router as auth_router
 from pansou_py.api.search import router as search_router
 from pansou_py.api.health import router as health_router
 from pansou_py.api.wechat import router as wechat_router
+from pansou_py.api.resources import router as resources_router
+from pansou_py.api.catalog import router as catalog_router
 from pansou_py.core.config import settings
 from pansou_py.models.database import init_db
 from pansou_py.core.scheduler import scheduler
@@ -27,6 +29,8 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(search_router, prefix="/api", tags=["Search"])
 app.include_router(health_router, prefix="/api", tags=["Health"])
 app.include_router(wechat_router, tags=["WeChat"])
+app.include_router(resources_router, tags=["Resources"])
+app.include_router(catalog_router, prefix="/api", tags=["Catalog"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -45,7 +49,10 @@ async def shutdown_event():
 
 @app.get("/", include_in_schema=False)
 def root():
-    return RedirectResponse(url="/static/index.html")
+    # The public root is served by the Next.js frontend.  Keeping API callers on
+    # the same canonical URL prevents them from falling back to the retired
+    # legacy page under /static/index.html.
+    return RedirectResponse(url=settings.PUBLIC_BASE_URL or "/")
 
 if __name__ == "__main__":
     uvicorn.run(
