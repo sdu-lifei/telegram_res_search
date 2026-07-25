@@ -7,6 +7,9 @@ class Link(BaseModel):
     password: Optional[str] = ""
     datetime: Optional[str] = None
     work_title: Optional[str] = None
+    resource_id: Optional[int] = None
+    open_url: Optional[str] = None
+    transfer_status: Optional[str] = None
 
 class SearchResult(BaseModel):
     message_id: str
@@ -25,6 +28,29 @@ class MergedLink(BaseModel):
     datetime: str
     source: str
     images: Optional[List[str]] = None
+    resource_id: Optional[int] = None
+    open_url: Optional[str] = None
+    transfer_status: Optional[str] = None
+
+class OpenResourceResponse(BaseModel):
+    status: str
+    resource_id: int
+    url: Optional[str] = None
+    password: Optional[str] = ""
+    message: Optional[str] = None
+    error_code: Optional[str] = None
+    job_id: Optional[int] = None
+    progress: Optional[int] = None
+
+class TransferStatusResponse(OpenResourceResponse):
+    transfer_status: Optional[str] = None
+
+class AdminStatsResponse(BaseModel):
+    resources: int
+    transferred: int
+    pending_jobs: int
+    failed_jobs: int
+    clicks: int
 
 class LoginRequest(BaseModel):
     username: str
@@ -37,6 +63,7 @@ class LoginResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     kw: str
+    track: bool = True
     channels: Optional[List[str]] = None
     refresh: Optional[bool] = False
     res: Optional[str] = "merge"   # all, results, merge
@@ -48,3 +75,6 @@ class SearchResponse(BaseModel):
     total: int
     results: Optional[List[SearchResult]] = None
     merged_by_type: Optional[Dict[str, List[MergedLink]]] = None
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    message: Optional[str] = None

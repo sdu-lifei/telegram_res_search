@@ -1,0 +1,19 @@
+[Unit]
+Description=PanSou Validated Resource Harvester
+After=network-online.target telegram-res-search.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/telegram-res-search
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/telegram-res-search
+EnvironmentFile=-/opt/telegram-res-search/.env
+ExecStart=/opt/telegram-res-search/.venv/bin/python /opt/telegram-res-search/scripts/resource_harvester.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

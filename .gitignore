@@ -1,12 +1,17 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.DS_Store
 .env
 .venv
 venv/
 ENV/
 *.db
 *.log
+logs/
+screenshots/
+share_images/
+bin/
 .pytest_cache/
 .vscode/
 pansou_py.egg-info/

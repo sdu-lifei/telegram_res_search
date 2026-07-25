@@ -1,0 +1,10 @@
+[Unit]
+Description=Send PanSou harvester report every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=telegram-res-harvester-report.service
+
+[Install]
+WantedBy=timers.target

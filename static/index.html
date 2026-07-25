@@ -3,95 +3,464 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PanSou Python Test UI</title>
+    <meta name="theme-color" content="#090d18">
+    <title>盘搜 - 网盘资源搜索</title>
+    <script>
+        // Kept only for legacy bookmarks and direct API deployments. The public
+        // frontend lives at /; preserve the shared keyword while moving there.
+        (() => {
+            const keyword = new URLSearchParams(window.location.search).get("kw");
+            window.location.replace(keyword ? `/search?kw=${encodeURIComponent(keyword)}` : "/");
+        })();
+    </script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { text-align: center; color: #1a73e8; }
-        .search-box { display: flex; margin-bottom: 20px; }
-        input[type="text"] { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 6px 0 0 6px; outline: none; }
-        button { padding: 12px 24px; background: #1a73e8; color: white; border: none; font-size: 16px; border-radius: 0 6px 6px 0; cursor: pointer; transition: background 0.3s; }
-        button:hover { background: #1557b0; }
-        .result-item { border-bottom: 1px solid #eee; padding: 15px 0; }
-        .result-item:last-child { border-bottom: none; }
-        .result-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #202124; }
-        .result-meta { font-size: 13px; color: #5f6368; margin-bottom: 8px; }
-        .result-links a { display: inline-block; background: #e8f0fe; color: #1a73e8; padding: 6px 12px; text-decoration: none; border-radius: 16px; font-size: 14px; margin-right: 8px; margin-bottom: 8px; }
-        .loader { display: none; text-align: center; padding: 20px; color: #666; }
-        .badge { display: inline-block; padding: 2px 6px; background: #ea4335; color: white; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+        :root {
+            color-scheme: dark;
+            --bg: #070a13;
+            --bg-soft: #0b1020;
+            --surface: #111522;
+            --surface-2: #171c2b;
+            --surface-3: #202638;
+            --text: #f4f6fb;
+            --muted: #99a3b7;
+            --line: #2a3042;
+            --primary: #5b8cff;
+            --primary-2: #34c8ff;
+            --primary-soft: rgba(91, 140, 255, .13);
+            --success: #49cf92;
+            --warning: #f0b45b;
+            --danger: #ff716a;
+            --shadow: 0 18px 55px rgba(0, 0, 0, .26);
+        }
+
+        html[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f3f6fa;
+            --bg-soft: #eaf0f8;
+            --surface: #ffffff;
+            --surface-2: #f7f9fc;
+            --surface-3: #edf2f8;
+            --text: #172033;
+            --muted: #667289;
+            --line: #dbe2ec;
+            --primary: #316ee8;
+            --primary-2: #058fc4;
+            --primary-soft: rgba(49, 110, 232, .1);
+            --success: #13875a;
+            --warning: #a96700;
+            --danger: #c9413a;
+            --shadow: 0 16px 45px rgba(27, 44, 75, .1);
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+            letter-spacing: 0;
+        }
+        button, input, select { font: inherit; }
+        button { color: inherit; }
+        .hidden { display: none !important; }
+
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            border-bottom: 1px solid var(--line);
+            background: color-mix(in srgb, var(--bg) 86%, transparent);
+            backdrop-filter: blur(18px);
+        }
+        .header-inner, .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+        .header-inner { min-height: 68px; display: flex; align-items: center; gap: 22px; }
+        .brand { display: flex; align-items: center; gap: 11px; min-width: 190px; text-decoration: none; color: var(--text); }
+        .brand-mark {
+            width: 36px; height: 36px; display: grid; place-items: center;
+            border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--primary-2));
+            box-shadow: 0 8px 24px rgba(44, 121, 246, .28); font-weight: 900;
+        }
+        .brand strong { font-size: 18px; }
+        .header-search { display: flex; flex: 1; max-width: 430px; min-width: 180px; }
+        .header-search input { border-radius: 8px 0 0 8px; }
+        .header-search button { border-radius: 0 8px 8px 0; min-width: 48px; }
+        .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+        .icon-btn {
+            width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line);
+            border-radius: 8px; background: var(--surface-2); cursor: pointer; font-size: 17px;
+        }
+        .icon-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+        .shell { padding: 18px 0 48px; }
+        .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+        .search-hub { display: grid; grid-template-columns: minmax(0, 1fr) 300px; overflow: hidden; }
+        .search-main { padding: 26px; border-right: 1px solid var(--line); }
+        .eyebrow { color: var(--primary-2); font-size: 12px; font-weight: 750; text-transform: uppercase; }
+        h1 { margin: 7px 0 8px; font-size: 27px; line-height: 1.3; }
+        .lead { margin: 0 0 21px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+        .search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+        .input-wrap { position: relative; }
+        .input-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+        .search-input {
+            width: 100%; height: 54px; padding: 0 16px 0 43px; border: 1px solid var(--line);
+            border-radius: 8px; outline: 0; background: var(--surface-2); color: var(--text); font-size: 16px;
+        }
+        .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .btn {
+            min-height: 42px; border: 1px solid transparent; border-radius: 8px; padding: 0 17px;
+            background: var(--surface-3); cursor: pointer; font-weight: 700;
+        }
+        .btn:disabled { cursor: wait; opacity: .64; }
+        .btn-primary { min-width: 104px; background: var(--primary); color: #fff; }
+        .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+        .section-label { margin: 21px 0 10px; color: var(--muted); font-size: 13px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip {
+            min-height: 32px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px;
+            background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 13px;
+        }
+        .chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+        .search-tip { margin-top: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: var(--surface-2); font-size: 12px; }
+
+        .overview { padding: 20px; background: var(--surface-2); }
+        .overview h2 { margin: 0 0 12px; font-size: 15px; }
+        .stats { display: grid; gap: 9px; }
+        .stat { padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+        .stat-label { color: var(--muted); font-size: 12px; }
+        .stat-value { display: block; margin-top: 6px; font-size: 20px; font-weight: 800; overflow-wrap: anywhere; }
+        .stat-value.good { color: var(--success); }
+
+        .toolbar { display: flex; align-items: center; gap: 10px; min-height: 58px; margin-top: 14px; padding: 10px 13px; }
+        .result-summary { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); }
+        .result-summary strong { color: var(--text); }
+        .select { height: 36px; border: 1px solid var(--line); border-radius: 7px; padding: 0 30px 0 10px; background: var(--surface-2); color: var(--text); }
+        .text-btn { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 8px; }
+        .text-btn:hover { color: var(--primary); }
+
+        .status { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 13px 15px; color: var(--muted); }
+        .status.error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+        .spinner { width: 17px; height: 17px; border: 2px solid var(--line); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .results { display: grid; gap: 10px; margin-top: 14px; }
+        .result-card { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; padding: 16px; box-shadow: none; }
+        .file-icon { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 8px; background: var(--primary-soft); color: var(--primary); font-weight: 850; font-size: 13px; }
+        .result-main { min-width: 0; }
+        .result-title { margin: 0; font-size: 16px; line-height: 1.48; overflow-wrap: anywhere; }
+        .result-meta { display: flex; flex-wrap: wrap; gap: 7px 13px; margin-top: 7px; color: var(--muted); font-size: 12px; }
+        .result-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+        .result-actions { width: 172px; display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+        .badge { align-self: flex-end; padding: 4px 8px; border-radius: 999px; color: var(--success); background: rgba(73, 207, 146, .11); font-size: 11px; font-weight: 750; }
+        .badge.invalid { color: var(--danger); background: rgba(255, 113, 106, .11); }
+        .open-btn { width: 100%; min-height: 38px; background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--line)); color: var(--primary); }
+        .open-btn:hover:not(:disabled) { background: var(--primary); color: #fff; }
+        .open-btn.invalid { color: var(--muted); background: var(--surface-3); border-color: var(--line); }
+        .mini-actions { display: flex; gap: 5px; }
+        .mini-btn { flex: 1; min-height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--muted); cursor: pointer; font-size: 11px; }
+        .mini-btn:hover { color: var(--primary); border-color: var(--primary); }
+        .progress { display: none; }
+        .progress-track { height: 5px; overflow: hidden; border-radius: 999px; background: var(--surface-3); }
+        .progress-bar { width: 0; height: 100%; background: var(--success); transition: width .25s ease; }
+        .progress-text { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+        .empty { margin-top: 14px; padding: 42px 20px; text-align: center; color: var(--muted); }
+        .empty-mark { width: 50px; height: 50px; display: grid; place-items: center; margin: 0 auto 12px; border-radius: 50%; background: var(--surface-3); font-size: 22px; }
+        .empty h2 { margin: 0 0 7px; color: var(--text); font-size: 18px; }
+        .searching-line { width: min(330px, 80%); height: 5px; margin: 18px auto 0; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
+        .searching-line::after { content: ""; display: block; width: 35%; height: 100%; background: var(--primary); animation: sweep 1.2s linear infinite; }
+        @keyframes sweep { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
+        .footer { padding: 24px 4px 0; color: var(--muted); font-size: 12px; line-height: 1.7; text-align: center; }
+        .toast { position: fixed; left: 50%; bottom: 26px; z-index: 50; transform: translateX(-50%); padding: 10px 15px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-3); box-shadow: var(--shadow); font-size: 13px; }
+
+        @media (max-width: 780px) {
+            .header-inner, .shell { width: min(100% - 22px, 1180px); }
+            .header-inner { min-height: 60px; }
+            .brand { min-width: 0; }
+            .brand strong { font-size: 16px; }
+            .header-search { display: none; }
+            .search-hub { grid-template-columns: 1fr; }
+            .search-main { padding: 18px; border-right: 0; }
+            .overview { border-top: 1px solid var(--line); }
+            .stats { grid-template-columns: repeat(3, 1fr); }
+            .stat { padding: 10px; }
+            .stat-value { font-size: 15px; }
+            .result-card { grid-template-columns: 42px minmax(0, 1fr); }
+            .file-icon { width: 42px; height: 42px; }
+            .result-actions { grid-column: 1 / -1; width: 100%; display: grid; grid-template-columns: 1fr auto; }
+            .badge { display: none; }
+            .mini-actions { min-width: 124px; }
+        }
+        @media (max-width: 520px) {
+            h1 { font-size: 22px; }
+            .search-form { grid-template-columns: 1fr; }
+            .btn-primary { height: 46px; }
+            .stats { grid-template-columns: 1fr; }
+            .overview { display: none; }
+            .toolbar { align-items: flex-start; flex-wrap: wrap; }
+            .result-summary { flex-basis: 100%; }
+            .result-card { gap: 10px; padding: 13px; }
+            .result-actions { grid-template-columns: 1fr; }
+            .mini-actions { min-width: 0; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>PanSou Python 搜索测试</h1>
-        
-        <div class="search-box">
-            <input type="text" id="keyword" placeholder="输入搜索关键词，例如：python" onkeypress="if(event.key === 'Enter') search()">
-            <button onclick="search()">搜索</button>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="/" aria-label="盘搜首页">
+                <span class="brand-mark">P</span><strong>盘搜</strong>
+            </a>
+            <form class="header-search" id="headerSearchForm">
+                <input class="search-input" id="headerKeyword" type="search" placeholder="输入关键字快速搜索" autocomplete="off">
+                <button class="btn btn-primary" type="submit" aria-label="搜索">⌕</button>
+            </form>
+            <div class="header-actions">
+                <button class="icon-btn" id="shareButton" type="button" title="分享当前搜索" aria-label="分享当前搜索">↗</button>
+                <button class="icon-btn" id="themeButton" type="button" title="切换日夜模式" aria-label="切换日夜模式">☾</button>
+            </div>
         </div>
+    </header>
 
-        <div id="loader" class="loader">正在搜索，模拟网络延迟大概半秒...</div>
-        <div id="results"></div>
-    </div>
+    <main class="shell">
+        <section class="panel search-hub">
+            <div class="search-main">
+                <span class="eyebrow">Pan Search</span>
+                <h1>网盘资源搜索</h1>
+                <p class="lead">聚合公开索引，自动检查链接并优先展示可用资源。</p>
+                <form class="search-form" id="searchForm">
+                    <div class="input-wrap"><span class="input-icon">⌕</span><input class="search-input" id="keyword" type="search" placeholder="搜索片名 / 演员 / 年份 / 4K" autocomplete="off"></div>
+                    <button class="btn btn-primary" id="searchButton" type="submit">搜索</button>
+                </form>
+                <div class="section-label">热门搜索</div>
+                <div class="chips" id="hotTerms">
+                    <button class="chip" type="button" data-kw="唐朝诡事录">唐朝诡事录</button>
+                    <button class="chip" type="button" data-kw="凡人修仙传">凡人修仙传</button>
+                    <button class="chip" type="button" data-kw="神探狄仁杰">神探狄仁杰</button>
+                    <button class="chip" type="button" data-kw="红楼梦 1987">红楼梦 1987</button>
+                    <button class="chip" type="button" data-kw="天道 4K">天道 4K</button>
+                    <button class="chip" type="button" data-kw="斗破苍穹">斗破苍穹</button>
+                </div>
+                <div class="section-label hidden" id="historyLabel">最近搜索</div>
+                <div class="chips" id="historyTerms"></div>
+                <div class="search-tip">提示：完整名称 + 年份或清晰度通常能得到更准确的结果。</div>
+            </div>
+            <aside class="overview">
+                <h2>搜索概览</h2>
+                <div class="stats">
+                    <div class="stat"><span class="stat-label">服务状态</span><strong class="stat-value good" id="serviceStatus">检测中</strong></div>
+                    <div class="stat"><span class="stat-label">可用索引源</span><strong class="stat-value" id="channelCount">--</strong></div>
+                    <div class="stat"><span class="stat-label">本次找到</span><strong class="stat-value" id="currentCount">--</strong></div>
+                </div>
+            </aside>
+        </section>
+
+        <div class="panel status hidden" id="status"><span class="spinner" id="spinner"></span><span id="statusText">正在搜索...</span></div>
+        <section class="panel toolbar hidden" id="toolbar">
+            <div class="result-summary" id="summary"></div>
+            <select class="select" id="availabilityFilter" aria-label="可用状态"><option value="all">全部状态</option><option value="valid">仅可用</option><option value="invalid">已失效</option></select>
+            <select class="select" id="sortOrder" aria-label="结果排序"><option value="relevance">相关度排序</option><option value="newest">最新优先</option></select>
+            <button class="text-btn" id="refreshButton" type="button" title="强制刷新搜索">刷新</button>
+        </section>
+        <section class="results" id="results" aria-live="polite"></section>
+        <footer class="footer">本站仅提供公开网络资源索引，不存储、不上传任何网盘内容。请遵守相关法律法规并支持正版。</footer>
+    </main>
+    <div class="toast hidden" id="toast"></div>
 
     <script>
-        async function search() {
-            const kw = document.getElementById('keyword').value.trim();
-            if(!kw) return;
+        const $ = id => document.getElementById(id);
+        const form = $('searchForm');
+        const keywordEl = $('keyword');
+        const searchButton = $('searchButton');
+        const statusEl = $('status');
+        const statusText = $('statusText');
+        const spinner = $('spinner');
+        const toolbar = $('toolbar');
+        const summary = $('summary');
+        const resultsEl = $('results');
+        let searchRetryTimer = null;
+        let searchSession = 0;
+        let currentResults = [];
+        let currentKeyword = '';
 
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('results').innerHTML = '';
+        initTheme();
+        renderHistory();
+        checkHealth();
 
+        form.addEventListener('submit', event => { event.preventDefault(); search(); });
+        $('headerSearchForm').addEventListener('submit', event => {
+            event.preventDefault();
+            keywordEl.value = $('headerKeyword').value.trim();
+            search();
+            keywordEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        document.querySelectorAll('[data-kw]').forEach(button => button.addEventListener('click', () => runQuickSearch(button.dataset.kw)));
+        $('themeButton').addEventListener('click', toggleTheme);
+        $('shareButton').addEventListener('click', shareSearch);
+        $('refreshButton').addEventListener('click', () => search(true));
+        $('availabilityFilter').addEventListener('change', applyResultView);
+        $('sortOrder').addEventListener('change', applyResultView);
+
+        function runQuickSearch(keyword) { keywordEl.value = keyword; search(); }
+
+        async function search(forceRefresh = false) {
+            const kw = keywordEl.value.trim();
+            if (!kw) { keywordEl.focus(); return; }
+            currentKeyword = kw;
+            $('headerKeyword').value = kw;
+            saveHistory(kw);
+            updateUrl(kw);
+            searchSession += 1;
+            const sessionId = searchSession;
+            clearTimeout(searchRetryTimer);
+            setLoading(`正在搜索「${kw}」...`);
+            resultsEl.innerHTML = '';
+            toolbar.classList.add('hidden');
+            $('currentCount').textContent = '--';
+            await fetchAndRenderSearch(kw, sessionId, 0, forceRefresh);
+        }
+
+        async function fetchAndRenderSearch(kw, sessionId, attempt, forceRefresh = false) {
             try {
                 const response = await fetch('/api/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        kw: kw,
-                        res: "all"
-                    })
+                    body: JSON.stringify({ kw, res: 'all', refresh: forceRefresh, cloud_types: ['quark'] })
                 });
-                
+                if (!response.ok) throw new Error(`服务返回 ${response.status}`);
                 const data = await response.json();
-                document.getElementById('loader').style.display = 'none';
-                
-                if(data.results && data.results.length > 0) {
-                    renderResults(data.results);
+                if (sessionId !== searchSession) return;
+                const results = Array.isArray(data.results) ? data.results : [];
+                if (results.length) {
+                    setIdle();
+                    currentResults = results;
+                    $('currentCount').textContent = data.total || results.length;
+                    toolbar.classList.remove('hidden');
+                    applyResultView();
+                    return;
+                }
+                if (isSearchingState(data)) {
+                    showStatus(data.message || '后台仍在搜索，找到后会自动刷新。');
+                    renderSearching(kw, data.message);
+                    scheduleSearchRetry(kw, sessionId, attempt + 1);
                 } else {
-                    document.getElementById('results').innerHTML = '<p style="text-align:center;color:#666;">未找到结果</p>';
+                    setIdle(); currentResults = []; $('currentCount').textContent = '0'; renderEmpty(kw);
                 }
             } catch (error) {
-                document.getElementById('loader').style.display = 'none';
-                document.getElementById('results').innerHTML = `<p style="color:red">请求错误: ${error.message}</p>`;
+                if (sessionId !== searchSession) return;
+                setIdle(); showStatus(`搜索失败：${error.message}`, true);
             }
         }
 
-        function renderResults(results) {
-            const container = document.getElementById('results');
-            let html = '';
-            
-            results.forEach(res => {
-                let linksHtml = res.links.map(link => {
-                    let pwd = link.password ? ` <span class="badge">密码: ${link.password}</span>` : '';
-                    return `<a href="${link.url}" target="_blank">${link.type} 网盘${pwd}</a>`;
-                }).join('');
-
-                html += `
-                    <div class="result-item">
-                        <div class="result-title">${res.title}</div>
-                        <div class="result-meta">
-                            来源: <b>${res.channel}</b> | 
-                            时间: ${new Date(res.datetime).toLocaleString()}
-                        </div>
-                        <div class="result-links">
-                            ${linksHtml}
-                        </div>
-                    </div>
-                `;
-            });
-            
-            container.innerHTML = html;
+        function applyResultView() {
+            const filter = $('availabilityFilter').value;
+            const sort = $('sortOrder').value;
+            let visible = [...currentResults];
+            if (filter !== 'all') visible = visible.filter(result => isInvalidResult(result) === (filter === 'invalid'));
+            if (sort === 'newest') visible.sort((a, b) => new Date(b.datetime || 0) - new Date(a.datetime || 0));
+            summary.innerHTML = `找到 <strong>${currentResults.length}</strong> 组资源，当前显示 <strong>${visible.length}</strong> 组`;
+            renderResults(visible);
         }
+
+        function renderResults(results) {
+            if (!results.length) { resultsEl.innerHTML = '<section class="panel empty"><div class="empty-mark">⌕</div><h2>当前筛选下没有结果</h2><p>可以切换状态筛选查看其他资源。</p></section>'; return; }
+            resultsEl.innerHTML = results.map(result => {
+                const links = (result.links || []).filter(link => link.type === 'quark');
+                const invalid = links.length > 0 && links.every(link => link.transfer_status === 'failed');
+                const primaryLink = links.find(link => !link.transfer_status || link.transfer_status !== 'failed') || links[0];
+                return `<article class="panel result-card">
+                    <div class="file-icon">夸克</div>
+                    <div class="result-main">
+                        <h2 class="result-title">${escapeHtml(result.title || '未命名资源')}</h2>
+                        <div class="result-meta"><span>来源 ${escapeHtml(normalizeSource(result.channel || ''))}</span><span>${escapeHtml(formatDate(result.datetime))}</span><span>${links.length} 个链接</span></div>
+                        ${result.description ? `<p class="result-description">${escapeHtml(result.description)}</p>` : ''}
+                    </div>
+                    <div class="result-actions">
+                        <span class="badge ${invalid ? 'invalid' : ''}">${invalid ? '已失效' : '可用资源'}</span>
+                        ${primaryLink ? renderLink(primaryLink) : '<button class="btn open-btn invalid" disabled>暂无链接</button>'}
+                        ${primaryLink ? `<div class="mini-actions"><button class="mini-btn" type="button" onclick="copyText('${escapeJs(primaryLink.password || '')}', '口令已复制')">复制口令</button><button class="mini-btn" type="button" onclick="copyText('${escapeJs(primaryLink.url || '')}', '链接已复制')">复制链接</button></div>` : ''}
+                    </div>
+                </article>`;
+            }).join('');
+        }
+
+        function renderLink(link) {
+            const invalid = link.transfer_status === 'failed';
+            if (link.resource_id) return `<div class="link-wrap" data-resource-id="${link.resource_id}"><button class="btn open-btn ${invalid ? 'invalid' : ''}" onclick="openResource(${link.resource_id}, this)" ${invalid ? 'disabled' : ''}>${invalid ? '资源不可用' : '检查并打开'}</button><div class="progress"><div class="progress-track"><div class="progress-bar"></div></div><div class="progress-text"></div></div></div>`;
+            return `<a class="btn open-btn" href="${escapeAttribute(link.url)}" target="_blank" rel="noopener">打开资源</a>`;
+        }
+
+        async function openResource(resourceId, button) {
+            const originalText = button.textContent;
+            button.disabled = true; button.textContent = '正在检查';
+            try {
+                const response = await fetch(`/api/resources/${resourceId}/open`, { method: 'POST' });
+                if (!response.ok) throw new Error(`服务返回 ${response.status}`);
+                const data = await response.json();
+                if (data.status === 'ready' && data.url) { updateProgress(button, 100, '资源可用，正在打开'); window.location.assign(data.url); restoreButton(button, originalText, 1400); return; }
+                if (data.status === 'pending' || data.status === 'running') { updateProgress(button, data.progress || 3, data.message || '正在准备资源'); await pollTransferStatus(resourceId, button, originalText); return; }
+                handleOpenFailure(button, data, originalText);
+            } catch (error) { updateProgress(button, 0, `失败：${error.message}`); restoreButton(button, originalText, 2600); }
+        }
+
+        async function pollTransferStatus(resourceId, button, originalText) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 180000) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                const response = await fetch(`/api/resources/${resourceId}/status`);
+                if (!response.ok) throw new Error(`服务返回 ${response.status}`);
+                const data = await response.json();
+                if (data.status === 'ready' && data.url) { updateProgress(button, 100, '资源可用，正在打开'); window.location.assign(data.url); restoreButton(button, originalText, 1400); return; }
+                if (data.status === 'failed') { handleOpenFailure(button, data, originalText); return; }
+                updateProgress(button, data.progress || 10, data.message || '正在准备资源');
+            }
+            updateProgress(button, 90, '仍在检查，可稍后再点'); restoreButton(button, originalText, 3200);
+        }
+
+        function updateProgress(button, progress, text) {
+            const wrap = button.closest('.link-wrap'); if (!wrap) return;
+            const safe = Math.max(0, Math.min(Number(progress) || 0, 100));
+            wrap.querySelector('.progress').style.display = 'block';
+            wrap.querySelector('.progress-bar').style.width = `${safe}%`;
+            wrap.querySelector('.progress-text').textContent = `${text} · ${safe}%`;
+        }
+        function handleOpenFailure(button, data, originalText) {
+            const message = data.message || '资源暂时不可用'; updateProgress(button, 100, message);
+            if (data.error_code === 'RESOURCE_NOT_FOUND' || /not found|失效|不存在/i.test(message)) { button.disabled = true; button.textContent = '资源不可用'; button.classList.add('invalid'); return; }
+            restoreButton(button, originalText, 3200);
+        }
+        function restoreButton(button, text, delay) { setTimeout(() => { button.disabled = false; button.textContent = text; }, delay); }
+        function isInvalidResult(result) { const links = (result.links || []).filter(link => link.type === 'quark'); return links.length > 0 && links.every(link => link.transfer_status === 'failed'); }
+
+        function setLoading(text) { searchButton.disabled = true; searchButton.textContent = '搜索中'; showStatus(text); }
+        function setIdle() { searchButton.disabled = false; searchButton.textContent = '搜索'; statusEl.classList.add('hidden'); }
+        function showStatus(text, error = false) { statusText.textContent = text; spinner.classList.toggle('hidden', error); statusEl.classList.toggle('error', error); statusEl.classList.remove('hidden'); }
+        function isSearchingState(data) { return data && (data.status === 'searching' || data.status === 'in_progress'); }
+        function scheduleSearchRetry(keyword, sessionId, attempt) { if (attempt > 5 || sessionId !== searchSession) return; searchRetryTimer = setTimeout(() => fetchAndRenderSearch(keyword, sessionId, attempt), Math.min(3000 + attempt * 1000, 8000)); }
+        function renderSearching(keyword, message) { resultsEl.innerHTML = `<section class="panel empty"><div class="empty-mark">⌕</div><h2>正在深度搜索「${escapeHtml(keyword)}」</h2><p>${escapeHtml(message || '找到后会自动刷新，无需重复操作。')}</p><div class="searching-line"></div></section>`; }
+        function renderEmpty(keyword) { resultsEl.innerHTML = `<section class="panel empty"><div class="empty-mark">⌕</div><h2>暂未找到「${escapeHtml(keyword)}」</h2><p>试试完整名称、年份、演员或清晰度。</p></section>`; }
+
+        async function checkHealth() {
+            try { const response = await fetch('/api/health'); const data = await response.json(); $('serviceStatus').textContent = response.ok ? '运行正常' : '异常'; $('channelCount').textContent = data.channels_count ?? '--'; }
+            catch { $('serviceStatus').textContent = '暂不可用'; $('serviceStatus').classList.remove('good'); }
+        }
+        function saveHistory(keyword) { const list = getHistory().filter(item => item !== keyword); list.unshift(keyword); localStorage.setItem('pansou-history', JSON.stringify(list.slice(0, 6))); renderHistory(); }
+        function getHistory() { try { return JSON.parse(localStorage.getItem('pansou-history') || '[]'); } catch { return []; } }
+        function renderHistory() { const list = getHistory(); $('historyLabel').classList.toggle('hidden', !list.length); $('historyTerms').innerHTML = list.map(item => `<button class="chip" type="button" data-history="${escapeAttribute(item)}">${escapeHtml(item)}</button>`).join(''); $('historyTerms').querySelectorAll('[data-history]').forEach(button => button.addEventListener('click', () => runQuickSearch(button.dataset.history))); }
+        function initTheme() { const theme = localStorage.getItem('pansou-theme') || 'dark'; document.documentElement.dataset.theme = theme; $('themeButton').textContent = theme === 'dark' ? '☀' : '☾'; }
+        function toggleTheme() { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; localStorage.setItem('pansou-theme', theme); $('themeButton').textContent = theme === 'dark' ? '☀' : '☾'; }
+        function updateUrl(keyword) { const url = new URL(location.href); url.searchParams.set('kw', keyword); history.replaceState(null, '', url); }
+        async function shareSearch() { const url = new URL(location.href); if (currentKeyword || keywordEl.value.trim()) url.searchParams.set('kw', currentKeyword || keywordEl.value.trim()); if (navigator.share) { try { await navigator.share({ title: '盘搜资源搜索', url: url.toString() }); return; } catch {} } copyText(url.toString(), '搜索链接已复制'); }
+        async function copyText(text, message) { if (!text) { showToast('暂无可复制内容'); return; } try { await navigator.clipboard.writeText(text); showToast(message); } catch { showToast('复制失败，请手动复制'); } }
+        function showToast(text) { const toast = $('toast'); toast.textContent = text; toast.classList.remove('hidden'); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.add('hidden'), 1800); }
+        function formatDate(value) { if (!value) return '时间未知'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
+        function normalizeSource(source) { return source.replace(/^tg:/, '').replace(/^tg:/, '') || '公开索引'; }
+        function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+        function escapeAttribute(value) { return escapeHtml(value).replace(/`/g, '&#96;'); }
+        function escapeJs(value) { return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' '); }
+
+        window.addEventListener('DOMContentLoaded', () => { const kw = new URLSearchParams(location.search).get('kw'); if (kw) { keywordEl.value = kw; $('headerKeyword').value = kw; search(); } });
     </script>
 </body>
 </html>

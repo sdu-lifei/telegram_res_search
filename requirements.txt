@@ -10,5 +10,8 @@ beautifulsoup4
 lxml
 aiohttp
 pytest-asyncio
+pytest
 sqlalchemy
 aiosqlite
+telethon
+qrcode[pil]

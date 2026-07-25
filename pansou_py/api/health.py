@@ -15,4 +15,7 @@ def health_check():
         "channels_count": len(settings.default_channels),
         "channels": settings.default_channels,
         "wechat_enabled": bool(settings.WECHAT_TOKEN),
+        "quark_click_transfer": settings.QUARK_CLICK_TRANSFER,
+        "quark_mock_transfer": settings.QUARK_MOCK_TRANSFER,
+        "discovery_enabled": settings.DISCOVERY_ENABLED,
     }
