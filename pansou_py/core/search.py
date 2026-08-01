@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import List, Dict, Optional, Any
 from pansou_py.models.schemas import SearchResult
 from pansou_py.core.cache import cache_service
@@ -7,7 +8,6 @@ from pansou_py.core.tg_searcher import telegram_searcher
 from pansou_py.core.config import settings
 from pansou_py.models.database import async_session, Resource, SearchRequest
 from pansou_py.utils.normalization import normalize_keyword
-from pansou_py.core.quark import quark_service
 from pansou_py.utils.validator import link_validator
 from sqlalchemy.future import select
 from sqlalchemy import delete
@@ -62,7 +62,7 @@ class SearchService:
         if not keyword:
             return {"total": 0, "results": [], "merged_by_type": {}}
 
-        cache_key = f"search_{keyword}_{src}_{plugins}"
+        cache_key = f"search_{keyword}_{src}_{plugins}_{cloud_types}_{max_pages}_{max_results}_{settings.QUARK_CLICK_TRANSFER}"
         if not force_refresh:
             cached = cache_service.get(cache_key)
             if cached:
@@ -74,7 +74,14 @@ class SearchService:
         # If this is a foreground request and the keyword is already being searched by a background task, 
         # return early to let user know it's in progress instead of waiting and timing out.
         if lock.locked() and not force_refresh:
-            return {"total": 0, "results": [], "merged_by_type": {}, "status": "in_progress"}
+            return {
+                "total": 0,
+                "results": [],
+                "merged_by_type": {},
+                "status": "searching",
+                "progress": 20,
+                "message": "后台正在搜索，请稍后自动刷新。",
+            }
 
         async with lock:
             # Re-check cache inside lock in case another task just finished it
@@ -112,6 +119,8 @@ class SearchService:
             else:
                 print(f"🏠 [Search] Found {len(db_resources)} results in DB. All are fresh, skipping validation.")
                 fresh_db_results = fresh_results
+
+            fresh_db_results = self._rank_and_filter_results(keyword, fresh_db_results)
             
             print(f"🏠 [Search] Total {len(fresh_db_results)} DB results ready for '{keyword}'.")
 
@@ -159,6 +168,7 @@ class SearchService:
 
                     # Combine and merge new findings
                     new_external_results = self._merge_results(tg_results, plugin_results)
+                    new_external_results = self._rank_and_filter_results(keyword, new_external_results)
                     
                     # Filter by cloud types BEFORE validation to save time
                     target_types = cloud_types if cloud_types else ["quark"]
@@ -178,6 +188,7 @@ class SearchService:
                     if new_external_results:
                         print(f"🛡️ [Search] Validating {len(new_external_results)} candidates for '{keyword}'...")
                         validated_external = await self._validate_all_results_deep(new_external_results)
+                        validated_external = self._rank_and_filter_results(keyword, validated_external)
                         
                         if max_results and len(validated_external) > max_results:
                             validated_external = validated_external[:max_results]
@@ -189,10 +200,10 @@ class SearchService:
                             saved_count = await self._save_results_to_db(keyword, validated_external)
                             print(f"💾 [Search] Saved {saved_count} new links to DB for '{keyword}'")
                             # Merge with existing
-                            all_results = self._merge_results(all_results, validated_external)
-                            # Trigger Quark transfer
-                            if settings.QUARK_AUTO_TRANSFER:
-                                asyncio.create_task(self._trigger_quark_transfer(validated_external))
+                            all_results = self._rank_and_filter_results(keyword, self._merge_results(all_results, validated_external))
+
+        all_results = self._rank_and_filter_results(keyword, all_results)
+        await self._enrich_results_with_resource_meta(all_results)
 
         # 3. Build merged view for response
         merged_by_type: Dict = {}
@@ -212,7 +223,10 @@ class SearchService:
                     "note": r.title,
                     "datetime": r.datetime,
                     "source": f"tg:{r.channel}",
-                    "images": r.images
+                    "images": r.images,
+                    "resource_id": link.resource_id,
+                    "open_url": link.open_url,
+                    "transfer_status": link.transfer_status,
                 }
 
                 if not existing or (bool(new_item.get("password")) and not existing.get("password")) or \
@@ -222,8 +236,9 @@ class SearchService:
         for c_type, url_map in seen_urls.items():
             merged_by_type[c_type] = list(url_map.values())
 
+        missing_status = None
         if not all_results:
-            await self._record_missing_request(keyword)
+            missing_status = await self._record_missing_request(keyword)
         else:
             await self._update_request_status(keyword, "found")
 
@@ -232,8 +247,19 @@ class SearchService:
             **({"results": [r.model_dump() for r in all_results]} if res_type in ["all", "results"] else {}),
             **({"merged_by_type": merged_by_type} if res_type in ["all", "merge"] else {}),
         }
-        
-        cache_service.set(cache_key, response)
+        if not all_results:
+            if missing_status == "failed":
+                response["status"] = "failed"
+                response["progress"] = 100
+                response["message"] = "暂未找到可用资源，可以换完整名称、年份或清晰度再试。"
+            else:
+                response["status"] = "searching"
+                response["progress"] = 35
+                response["message"] = "后台仍在搜索，找到后会自动刷新。"
+            cache_service.delete(cache_key)
+        else:
+            response["status"] = "found"
+            cache_service.set(cache_key, response)
         return response
 
     async def _search_local_db(self, keyword: str, cloud_types: Optional[List[str]]) -> List[Resource]:
@@ -252,10 +278,69 @@ class SearchService:
             result = await session.execute(query)
             return result.scalars().all()
 
+    def _rank_and_filter_results(self, keyword: str, results: List[SearchResult]) -> List[SearchResult]:
+        if not results:
+            return []
+
+        scored = []
+        for index, result in enumerate(results):
+            score = self._relevance_score(keyword, result)
+            if score > 0:
+                scored.append((score, index, result))
+
+        scored.sort(key=lambda item: (item[0], item[2].datetime), reverse=True)
+        return [result for _, _, result in scored]
+
+    def _relevance_score(self, keyword: str, result: SearchResult) -> int:
+        exact = re.sub(r"\s+", "", keyword).lower()
+        terms = self._keyword_terms(keyword)
+        title = self._compact_text(result.title)
+        description = self._compact_text(result.description or "")
+        link_titles = self._compact_text(" ".join(link.work_title or "" for link in result.links))
+        channel = self._compact_text(result.channel or "")
+
+        score = 0
+        if exact:
+            if exact in title:
+                score += 90
+            if exact in link_titles:
+                score += 45
+            if exact in description:
+                score += 30
+            if exact in channel:
+                score += 8
+
+        for term in terms:
+            if not term or term == exact:
+                continue
+            if term in title:
+                score += 30
+            if term in link_titles:
+                score += 18
+            if term in description:
+                score += 10
+
+        if result.channel == "web_fallback" and score < 30:
+            return 0
+        return score
+
+    def _keyword_terms(self, keyword: str) -> List[str]:
+        compact = re.sub(r"\s+", "", keyword).lower()
+        terms = [compact] if compact else []
+        for term in re.findall(r"[\w\u4e00-\u9fff]{2,}", keyword):
+            term = term.lower()
+            if term not in terms:
+                terms.append(term)
+        return terms
+
+    def _compact_text(self, value: str) -> str:
+        return re.sub(r"\s+", "", value or "").lower()
+
     def _convert_db_to_search_results(self, db_results: List[Resource]) -> List[SearchResult]:
         from pansou_py.models.schemas import Link as SchemaLink
         results = []
         for r in db_results:
+            open_url = self._resource_open_url(r.id)
             results.append(SearchResult(
                 message_id=str(r.id),
                 unique_id=f"db_{r.id}",
@@ -263,12 +348,45 @@ class SearchService:
                 datetime=r.datetime.isoformat() if r.datetime else "",
                 title=r.title,
                 description=r.description,
-                links=[SchemaLink(type=r.disk_type, url=r.url, password=r.password or "")],
+                links=[SchemaLink(
+                    type=r.disk_type,
+                    url=r.url,
+                    password=r.password or "",
+                    resource_id=r.id,
+                    open_url=open_url,
+                    transfer_status=r.transfer_status or "none",
+                )],
                 images=r.images
             ))
         return results
 
-    async def _record_missing_request(self, keyword: str):
+    def _resource_open_url(self, resource_id: int) -> str:
+        path = f"/r/{resource_id}"
+        if settings.PUBLIC_BASE_URL:
+            return settings.PUBLIC_BASE_URL.rstrip("/") + path
+        return path
+
+    async def _enrich_results_with_resource_meta(self, results: List[SearchResult]) -> None:
+        urls = [link.url for r in results for link in r.links if not link.resource_id]
+        if not urls:
+            return
+
+        async with async_session() as session:
+            query = select(Resource).where(Resource.url.in_(urls))
+            rows = (await session.execute(query)).scalars().all()
+
+        by_url = {row.url: row for row in rows}
+        for r in results:
+            for link in r.links:
+                resource = by_url.get(link.url)
+                if not resource:
+                    continue
+                open_url = self._resource_open_url(resource.id)
+                link.resource_id = resource.id
+                link.open_url = open_url
+                link.transfer_status = resource.transfer_status or "none"
+
+    async def _record_missing_request(self, keyword: str) -> str:
         async with async_session() as session:
             async with session.begin():
                 query = select(SearchRequest).where(SearchRequest.keyword == keyword)
@@ -277,8 +395,14 @@ class SearchService:
                 if req:
                     req.count += 1
                     req.last_search = datetime.utcnow()
+                    if req.count >= settings.SEARCH_MAX_RETRIES:
+                        req.status = "failed"
+                    elif req.status != "failed":
+                        req.status = "pending"
                 else:
-                    session.add(SearchRequest(keyword=keyword))
+                    req = SearchRequest(keyword=keyword, status="pending")
+                    session.add(req)
+                return req.status
 
     async def _update_request_status(self, keyword: str, status: str):
         async with async_session() as session:
@@ -322,15 +446,6 @@ class SearchService:
                 print(f"❌ [DB] Error batch saving resources: {e}")
         return count
 
-    async def _trigger_quark_transfer(self, results: List[SearchResult]):
-        for r in results:
-            for link in r.links:
-                if link.type == "quark":
-                    new_link = await quark_service.auto_transfer_flow(link.url, link.password)
-                    if new_link:
-                        print(f"✅ [Quark] Auto-transfer success: {new_link}")
-                        # Update DB with new link would go here
-
     async def _update_validation_time(self, urls: List[str]):
         """Update last_validated timestamp for valid URLs."""
         if not urls:
@@ -348,8 +463,13 @@ class SearchService:
         """Validate Resource objects from DB and remove invalid ones."""
         if not settings.VALIDATE_LINKS or not resources:
             return self._convert_db_to_search_results(resources)
+
+        owner_shared_resources = [r for r in resources if r.owner_share_url]
+        resources_to_validate = [r for r in resources if not r.owner_share_url]
+        if not resources_to_validate:
+            return self._convert_db_to_search_results(owner_shared_resources)
         
-        urls_to_check = [{"url": r.url, "type": r.disk_type} for r in resources]
+        urls_to_check = [{"url": r.url, "type": r.disk_type} for r in resources_to_validate]
         valid_links = await link_validator.filter_links(urls_to_check, timeout=settings.VALIDATE_TIMEOUT)
         valid_urls = {l['url'] for l in valid_links}
         invalid_urls = {l['url'] for l in urls_to_check if l['url'] not in valid_urls}
@@ -361,7 +481,7 @@ class SearchService:
         if valid_urls:
             await self._update_validation_time(list(valid_urls))
             
-        filtered_resources = [r for r in resources if r.url in valid_urls]
+        filtered_resources = owner_shared_resources + [r for r in resources_to_validate if r.url in valid_urls]
         return self._convert_db_to_search_results(filtered_resources)
 
     async def _validate_all_results_deep(self, results: List[SearchResult]) -> List[SearchResult]:

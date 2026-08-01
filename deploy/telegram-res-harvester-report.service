@@ -1,0 +1,14 @@
+[Unit]
+Description=Send PanSou Harvester Report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/telegram-res-search
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/telegram-res-search
+EnvironmentFile=-/opt/telegram-res-search/.env
+ExecStart=/opt/telegram-res-search/.venv/bin/python /opt/telegram-res-search/scripts/resource_harvester.py --send-report

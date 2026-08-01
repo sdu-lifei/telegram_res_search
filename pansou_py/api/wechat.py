@@ -2,11 +2,11 @@ import hashlib
 import time
 import asyncio
 import xml.etree.ElementTree as ET
-from typing import Optional
+from urllib.parse import quote
 from fastapi import APIRouter, Request, BackgroundTasks, Query, Response
 from pansou_py.core.config import settings
-from pansou_py.core.cache import cache_service
 from pansou_py.core.search import search_service
+from pansou_py.models.database import Resource, async_session
 from pansou_py.utils.validator import link_validator
 
 # Configure validator with proxy if available
@@ -81,6 +81,93 @@ def _format_results(results_data: dict, keyword: str) -> str:
     return "\n".join(lines)
 
 
+async def _format_transferred_results(keyword: str, resource_ids: list[int]) -> tuple[str, int]:
+    """Format owner-generated Quark shares for WeChat."""
+    if not resource_ids:
+        return f"😔 未找到「{keyword}」相关资源\n\n可换完整剧名、年份或英文名再试。", 0
+
+    rows = await _load_resources(resource_ids)
+    ready = [row for row in rows if row.owner_share_url]
+    if not ready:
+        return (
+            f"🔍「{keyword}」已找到资源。\n\n"
+            f"打开搜索页查看全部结果：\n{_search_page_url(keyword)}",
+            0,
+        )
+
+    row = ready[0]
+    title = _short_title(row.title or keyword)
+    lines = [f"「{keyword}」资源链接：", "", title, row.owner_share_url]
+    if row.owner_share_password:
+        lines.append(f"密码：{row.owner_share_password}")
+
+    return "\n".join(lines), 1
+
+
+def _extract_resource_ids(results_data: dict, limit: int = 3) -> list[int]:
+    seen: set[int] = set()
+    resource_ids: list[int] = []
+
+    for result in results_data.get("results") or []:
+        for link in result.get("links") or []:
+            resource_id = link.get("resource_id")
+            if isinstance(resource_id, int) and resource_id not in seen:
+                seen.add(resource_id)
+                resource_ids.append(resource_id)
+            if len(resource_ids) >= limit:
+                return resource_ids
+
+    for links in (results_data.get("merged_by_type") or {}).values():
+        for link in links:
+            resource_id = link.get("resource_id")
+            if isinstance(resource_id, int) and resource_id not in seen:
+                seen.add(resource_id)
+                resource_ids.append(resource_id)
+            if len(resource_ids) >= limit:
+                return resource_ids
+
+    return resource_ids
+
+
+def _prioritize_wechat_resource_ids(resources: list[Resource], limit: int = 8) -> list[int]:
+    def rank(row: Resource) -> tuple[int, int]:
+        if row.owner_share_url:
+            status_rank = 0
+        elif row.transfer_status == "failed":
+            status_rank = 2
+        else:
+            status_rank = 1
+        return (status_rank, -(row.id or 0))
+
+    return [row.id for row in sorted(resources, key=rank)[:limit] if row.id]
+
+
+async def _load_resources(resource_ids: list[int]) -> list[Resource]:
+    if not resource_ids:
+        return []
+
+    async with async_session() as session:
+        rows = []
+        for resource_id in resource_ids:
+            row = await session.get(Resource, resource_id)
+            if row:
+                rows.append(row)
+        return rows
+
+
+def _short_title(title: str, max_len: int = 36) -> str:
+    title = " ".join(title.split())
+    if len(title) <= max_len:
+        return title
+    return title[:max_len - 1] + "…"
+
+
+def _search_page_url(keyword: str) -> str:
+    path = "/search"
+    base = settings.PUBLIC_BASE_URL.rstrip("/") if settings.PUBLIC_BASE_URL else ""
+    return f"{base}{path}?kw={quote(keyword)}"
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Background search task (Silent caching)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -143,28 +230,35 @@ async def wechat_message(request: Request, background_tasks: BackgroundTasks):
     # Note: SearchService already handles Database-First logic and re-validation caching.
     
     async def get_results():
-        # Fast search: 1 page, 3 results max, 2s TG timeout → fits within 4.5s WeChat limit
+        # Fast search first; deeper search continues after the passive reply.
         return await search_service.search(
             keyword=keyword, max_pages=1, max_results=3,
-            cloud_types=["quark"], tg_timeout=2.0
+            cloud_types=["quark"], tg_timeout=1.5
         )
 
     try:
-        # Wait up to 4.5s for quick feedback (WeChat 5s limit)
-        results_data = await asyncio.wait_for(get_results(), timeout=4.5)
+        results_data = await asyncio.wait_for(get_results(), timeout=3.0)
         
         if results_data.get("total", 0) > 0:
-            reply = _format_results(results_data, keyword)
-            # Enrich DB in background with deeper search
+            candidate_resources = await _load_resources(_extract_resource_ids(results_data, limit=8))
+            resource_ids = _prioritize_wechat_resource_ids(candidate_resources, limit=8)
+            reply, ready_count = await _format_transferred_results(keyword, resource_ids)
             background_tasks.add_task(_do_search_and_cache, keyword)
         else:
-            # No results found in time
-            reply = f"😔 暂时未搜到「{keyword}」，后台已开始深度搜寻...\n\n👉 请过几分钟后再发送「{keyword}」重试。"
+            reply = (
+                f"😔 暂时未搜到「{keyword}」，后台已开始深度搜寻。\n\n"
+                f"打开搜索页查看：\n{_search_page_url(keyword)}\n\n"
+                f"也可以换完整名称、年份再试。"
+            )
             background_tasks.add_task(_do_search_and_cache, keyword)
             
     except asyncio.TimeoutError:
         # Search timed out, notify user to try same keyword later
-        reply = f"⏳ 资源「{keyword}」搜寻中，请过几分钟后再次发送相同关键词获取结果。"
+        reply = (
+            f"⏳「{keyword}」正在搜寻中，后台会继续深度搜索。\n\n"
+            f"打开搜索页查看：\n{_search_page_url(keyword)}\n\n"
+            f"也可以换完整名称、年份再试。"
+        )
         background_tasks.add_task(_do_search_and_cache, keyword)
     except Exception as e:
         reply = f"⚠️ 搜「{keyword}」时出错了，请稍后再试。"
