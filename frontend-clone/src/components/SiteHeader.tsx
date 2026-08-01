@@ -2,6 +2,7 @@
 
 import { Moon, Search, Sun } from "lucide-react";
 import Link from "next/link";
+import { ShareActions } from "./ShareActions";
 
 interface SiteHeaderProps {
   keyword: string;
@@ -22,7 +23,7 @@ export function SiteHeader({ keyword, light, onKeywordChange, onSearch, onToggle
           <button type="submit" aria-label="顶部搜索"><Search size={19} /></button>
         </form>
         <nav className="header-nav" aria-label="辅助导航"><a href="#search">资源搜索</a><a href="#guide">使用说明</a></nav>
-        <button className="theme-toggle" type="button" onClick={onToggleTheme} aria-label="切换日夜模式">{light ? <Moon size={17} /> : <Sun size={17} />}<span>{light ? "夜间" : "日间"}</span></button>
+        <div className="header-actions"><ShareActions keyword={keyword} compact /><button className="theme-toggle" type="button" onClick={onToggleTheme} aria-label="切换日夜模式">{light ? <Moon size={17} /> : <Sun size={17} />}<span>{light ? "夜间" : "日间"}</span></button></div>
       </div>
     </header>
   );
