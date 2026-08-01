@@ -16,14 +16,13 @@ export function ShareActions({ keyword = "", title = "", compact = false }: Shar
       setStatus(result === "shared" ? "已打开系统分享面板" : result === "copied" ? "已复制，请粘贴到微信群" : result === "prompted" ? "请复制提示框内容分享到微信群" : "");
       return;
     }
-    window.open(buildShareUrl(platform, url, text), "_blank", "noopener,noreferrer");
-    setStatus(`已打开 ${platform === "x" ? "X" : "WhatsApp"}`);
+    window.open(buildShareUrl(url, text), "_blank", "noopener,noreferrer");
+    setStatus("已打开 X");
   }
 
   return <div className={`share-actions${compact ? " compact" : ""}`} aria-label={title ? "分享搜索结果" : "分享盘搜"}>
-    <button type="button" title="分享到 X" aria-label="分享到 X" onClick={() => void share("x")}>X</button>
-    <button type="button" title="分享到 WhatsApp" aria-label="分享到 WhatsApp" onClick={() => void share("whatsapp")}>WA</button>
     <button type="button" title="分享到微信" aria-label="分享到微信" onClick={() => void share("wechat")}>微信</button>
+    <button type="button" title="分享到 X" aria-label="分享到 X" onClick={() => void share("x")}>X</button>
     {status && <span className="share-status" role="status" aria-live="polite">{status}</span>}
   </div>;
 }
