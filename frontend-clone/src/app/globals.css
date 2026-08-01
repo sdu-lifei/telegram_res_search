@@ -20,6 +20,7 @@ html.light .site-header{background:rgba(255,255,255,.9)}
 .header-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);padding:0 16px;outline:0}
 .header-search button{width:50px;border:0;background:transparent;color:var(--blue);display:grid;place-items:center}
 .header-nav{margin-left:auto;display:flex;gap:26px}
+.header-actions{display:flex;align-items:center;gap:8px}
 .header-nav a{color:var(--text);text-decoration:none}
 .theme-toggle{height:38px;display:flex;align-items:center;gap:7px;padding:0 12px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.06)}
 .page-shell{width:min(1200px,calc(100% - 28px));margin:0 auto;padding:78px 0 32px}
@@ -91,6 +92,12 @@ to{transform:translateX(300%)}
 .result-actions{display:grid;grid-template-columns:minmax(0,1fr)}
 .result-actions button{height:40px}
 .result-actions button:first-child{background:rgba(87,147,255,.15);color:#8db8ff}
+.share-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px}
+.share-actions button{min-height:30px;padding:0 8px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;font-size:11px}
+.share-actions button:hover{border-color:var(--blue);color:var(--blue)}
+.share-actions.compact{margin-top:0;flex-wrap:nowrap}
+.share-actions.compact button{min-width:30px;padding:0 6px}
+.share-status{color:var(--muted);font-size:11px;line-height:16px}
 .guide{padding:22px}
 .guide h2{margin:0 0 16px;font-size:18px}
 .guide>div{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
@@ -111,7 +118,7 @@ footer{width:min(1200px,calc(100% - 28px));margin:auto;padding:30px 15px 38px;co
 @media(max-width:640px){.site-header,.header-inner{height:116px}
 .header-inner{padding:0 12px 10px;display:grid;grid-template-columns:1fr auto;grid-template-rows:60px 42px;gap:4px 10px}
 .brand{grid-column:1;grid-row:1}
-.theme-toggle{grid-column:2;grid-row:1}
+.header-actions{grid-column:2;grid-row:1}.theme-toggle{grid-column:2;grid-row:1}
 .header-search{grid-column:1/-1;grid-row:2;display:flex;width:100%;height:42px}
 .brand{min-width:0}
 .theme-toggle span{display:none}
