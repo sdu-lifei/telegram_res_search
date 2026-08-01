@@ -8,16 +8,18 @@ import { ShareActions } from "./ShareActions";
 interface ResultsSectionProps { keyword: string; results: SearchResult[]; loading: boolean; message: string; onRefresh: () => void; }
 
 export function ResultsSection({ keyword, results, loading, message, onRefresh }: ResultsSectionProps) {
+  function openInNewTab(url: string) {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   async function openResource(resourceId: number | undefined, fallback: string) {
-    const tab = window.open("about:blank", "_blank", "noopener,noreferrer");
-    if (!tab) { window.alert("请允许浏览器打开新标签页后重试。"); return; }
-    if (!resourceId) { tab.location.href = fallback; return; }
+    if (!resourceId) { openInNewTab(fallback); return; }
     try {
       const response = await fetch(`/api/resources/${resourceId}/open`, { method: "POST" });
       const data = await response.json();
-      tab.location.href = data.url || `/r/${resourceId}`;
+      openInNewTab(data.url || `/r/${resourceId}`);
     } catch {
-      tab.location.href = `/r/${resourceId}`;
+      openInNewTab(`/r/${resourceId}`);
     }
   }
 
