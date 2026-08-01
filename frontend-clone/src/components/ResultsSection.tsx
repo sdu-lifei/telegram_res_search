@@ -9,11 +9,16 @@ interface ResultsSectionProps { keyword: string; results: SearchResult[]; loadin
 
 export function ResultsSection({ keyword, results, loading, message, onRefresh }: ResultsSectionProps) {
   async function openResource(resourceId: number | undefined, fallback: string) {
-    if (!resourceId) { window.location.assign(fallback); return; }
-    const response = await fetch(`/api/resources/${resourceId}/open`, { method: "POST" });
-    const data = await response.json();
-    if (data.url) window.location.assign(data.url);
-    else window.location.assign(`/r/${resourceId}`);
+    const tab = window.open("about:blank", "_blank", "noopener,noreferrer");
+    if (!tab) { window.alert("请允许浏览器打开新标签页后重试。"); return; }
+    if (!resourceId) { tab.location.href = fallback; return; }
+    try {
+      const response = await fetch(`/api/resources/${resourceId}/open`, { method: "POST" });
+      const data = await response.json();
+      tab.location.href = data.url || `/r/${resourceId}`;
+    } catch {
+      tab.location.href = `/r/${resourceId}`;
+    }
   }
 
   if (!keyword && !loading) return null;
