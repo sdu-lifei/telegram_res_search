@@ -42,7 +42,7 @@ export default async function ResourceDetail({ params }: { params: Promise<{ id:
   return <main className="detail-shell">
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
     <Link className="back-link" href="/"><ArrowLeft size={17} />返回搜索</Link>
-    <article className="detail-card"><div className="detail-badges"><span><HardDrive size={15} />夸克网盘</span><span><ShieldCheck size={15} />打开前自动检查</span></div><h1>{resource.title}</h1><p className="detail-description">{resource.description || "公开索引资源，点击下方按钮检查并打开。"}</p><dl><div><dt>关键词</dt><dd>{resource.keyword}</dd></div><div><dt>来源</dt><dd>{resource.source}</dd></div><div><dt>更新时间</dt><dd>{resource.datetime ? new Date(resource.datetime).toLocaleDateString("zh-CN") : "近期"}</dd></div></dl><a className="detail-open" href={resource.open_url}><ExternalLink size={18} />检查并打开资源</a></article>
+    <article className="detail-card"><div className="detail-badges"><span><HardDrive size={15} />夸克网盘</span><span><ShieldCheck size={15} />打开前自动检查</span></div><h1>{resource.title}</h1><p className="detail-description">{resource.description || "公开索引资源，点击下方按钮检查并打开。"}</p><dl><div><dt>关键词</dt><dd>{resource.keyword}</dd></div><div><dt>来源</dt><dd>{resource.source}</dd></div><div><dt>更新时间</dt><dd>{resource.datetime ? new Date(resource.datetime).toLocaleDateString("zh-CN") : "近期"}</dd></div></dl><a className="detail-open" href={resource.open_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={18} />检查并打开资源</a></article>
     <section className="detail-tips"><h2>搜索建议</h2><p>如果资源失效，可以返回首页搜索完整片名、年份、演员或清晰度，系统会继续查找其他公开索引。</p></section>
   </main>;
 }
