@@ -17,6 +17,10 @@
         .result-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #202124; }
         .result-meta { font-size: 13px; color: #5f6368; margin-bottom: 8px; }
         .result-links a { display: inline-block; background: #e8f0fe; color: #1a73e8; padding: 6px 12px; text-decoration: none; border-radius: 16px; font-size: 14px; margin-right: 8px; margin-bottom: 8px; }
+        .share-section { margin: 12px 0 20px; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .share-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .share-button { padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+        .share-status { min-height: 20px; margin: 8px 0 0; color: #5f6368; font-size: 13px; }
         .loader { display: none; text-align: center; padding: 20px; color: #666; }
         .badge { display: inline-block; padding: 2px 6px; background: #ea4335; color: white; border-radius: 4px; font-size: 12px; margin-left: 8px; }
     </style>
@@ -30,14 +34,58 @@
             <button onclick="search()">搜索</button>
         </div>
 
+        <div class="share-section">
+            <strong>分享 PanSou</strong>
+            <div class="share-actions">
+                <button type="button" class="share-button" onclick="sharePage('x')" aria-label="在 X 分享 PanSou">分享到 X</button>
+                <button type="button" class="share-button" onclick="sharePage('whatsapp')" aria-label="在 WhatsApp 分享 PanSou">分享到 WhatsApp</button>
+                <button type="button" class="share-button" onclick="sharePage('wechat')" aria-label="分享到微信群">分享到微信</button>
+            </div>
+            <p id="share-status" class="share-status" role="status" aria-live="polite"></p>
+        </div>
+
         <div id="loader" class="loader">正在搜索，模拟网络延迟大概半秒...</div>
         <div id="results"></div>
     </div>
 
+    <script src="/static/share.js"></script>
     <script>
+        let currentKeyword = "";
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[char]);
+        }
+
+        function setShareStatus(message) {
+            document.getElementById('share-status').textContent = message;
+        }
+
+        function sharePage(platform, title = "") {
+            const url = PanSouShare.buildPublicUrl(window.location, currentKeyword);
+            const text = PanSouShare.shareText(title, currentKeyword);
+            if (platform === 'wechat') {
+                PanSouShare.shareToWeChat(url, text).then(result => {
+                    if (result === 'shared') setShareStatus('已打开系统分享面板。');
+                    if (result === 'copied') setShareStatus('链接和说明已复制，请粘贴到微信群分享。');
+                    if (result === 'prompted') setShareStatus('请复制提示框中的内容，再分享到微信群。');
+                });
+                return;
+            }
+            window.open(PanSouShare.buildShareUrl(platform, url, text), '_blank', 'noopener,noreferrer');
+            setShareStatus(`已打开${platform === 'x' ? ' X' : ' WhatsApp'} 分享页面。`);
+        }
+
+        function shareResult(button) {
+            sharePage(button.dataset.platform, button.dataset.title);
+        }
+
         async function search() {
             const kw = document.getElementById('keyword').value.trim();
             if(!kw) return;
+            currentKeyword = kw;
+            history.replaceState(null, '', PanSouShare.buildPublicUrl(window.location, kw));
 
             document.getElementById('loader').style.display = 'block';
             document.getElementById('results').innerHTML = '';
@@ -72,25 +120,36 @@
             
             results.forEach(res => {
                 let linksHtml = res.links.map(link => {
-                    let pwd = link.password ? ` <span class="badge">密码: ${link.password}</span>` : '';
-                    return `<a href="${link.url}" target="_blank">${link.type} 网盘${pwd}</a>`;
+                    let pwd = link.password ? ` <span class="badge">密码: ${escapeHtml(link.password)}</span>` : '';
+                    return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.type)} 网盘${pwd}</a>`;
                 }).join('');
 
                 html += `
                     <div class="result-item">
-                        <div class="result-title">${res.title}</div>
+                        <div class="result-title">${escapeHtml(res.title)}</div>
                         <div class="result-meta">
-                            来源: <b>${res.channel}</b> | 
+                            来源: <b>${escapeHtml(res.channel)}</b> |
                             时间: ${new Date(res.datetime).toLocaleString()}
                         </div>
                         <div class="result-links">
                             ${linksHtml}
+                        </div>
+                        <div class="share-actions">
+                            <button type="button" class="share-button" data-platform="x" data-title="${escapeHtml(res.title)}" onclick="shareResult(this)">分享到 X</button>
+                            <button type="button" class="share-button" data-platform="whatsapp" data-title="${escapeHtml(res.title)}" onclick="shareResult(this)">分享到 WhatsApp</button>
+                            <button type="button" class="share-button" data-platform="wechat" data-title="${escapeHtml(res.title)}" onclick="shareResult(this)">分享到微信</button>
                         </div>
                     </div>
                 `;
             });
             
             container.innerHTML = html;
+        }
+
+        const initialKeyword = new URLSearchParams(window.location.search).get('kw');
+        if (initialKeyword) {
+            document.getElementById('keyword').value = initialKeyword;
+            search();
         }
     </script>
 </body>
