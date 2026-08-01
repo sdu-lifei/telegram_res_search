@@ -1,4 +1,4 @@
-export type SharePlatform = "x" | "whatsapp" | "wechat";
+export type SharePlatform = "wechat" | "x";
 
 export function buildPublicSearchUrl(keyword = "") {
   const url = new URL(keyword ? "/search" : "/", window.location.origin);
@@ -11,9 +11,8 @@ export function buildShareText(keyword = "", title = "") {
   return "盘搜：网盘资源搜索工具";
 }
 
-export function buildShareUrl(platform: Exclude<SharePlatform, "wechat">, url: string, text: string) {
-  if (platform === "x") return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-  return `https://api.whatsapp.com/send?text=${encodeURIComponent(`${text}\n${url}`)}`;
+export function buildShareUrl(url: string, text: string) {
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 }
 
 export async function shareToWeChat(url: string, text: string) {
